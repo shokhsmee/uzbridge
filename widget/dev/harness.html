@@ -3,6 +3,7 @@
   Dev-only stand-in for an amoCRM lead card, to exercise script.js against the
   local backend. Open through the Vite dev server:
     http://app.localhost:5174/@fs/Users/macbook/Odoo/uzbridge/widget/dev/harness.html?secret=<AMOCRM_CLIENT_SECRET>&account=31337
+  Add &page=settings for the widget's page in Настройки.
   It mimics only what the widget uses: define(), render_template, i18n,
   system().area, APP.data.current_card and $authorizedAjax (HS256 JWT).
 -->
@@ -62,6 +63,13 @@
         return d.promise()
       }
       w.callbacks.init()
+      if (params.get('page') === 'settings') {
+        // Настройки → uzbridge: amoCRM gives the widget #list_page_holder
+        document.body.innerHTML = '<div id="list_page_holder" style="grid-column:1/-1;background:' + (params.get('dark') ? '#152229' : '#fff') + '"></div>'
+        if (params.get('dark')) document.body.style.background = '#152229'
+        w.callbacks.advancedSettings()
+        return
+      }
       w.callbacks.render()
       w.callbacks.bind_actions()
     })

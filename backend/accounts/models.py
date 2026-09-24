@@ -93,6 +93,7 @@ class Company(models.Model):
     # How many payment / SMS providers the current period is paid for.
     paid_payment_units = models.PositiveSmallIntegerField(default=0)
     paid_sms_units = models.PositiveSmallIntegerField(default=0)
+    paid_docs_units = models.PositiveSmallIntegerField(default=0)  # amoCRM accounts with Documents on
     overdue_since = models.DateTimeField(null=True, blank=True)
     paused_at = models.DateTimeField(null=True, blank=True)
 

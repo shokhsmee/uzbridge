@@ -1,6 +1,6 @@
 import logging
 
-from odoo import _, api, models
+from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 from odoo.tools import urls
 
@@ -17,14 +17,13 @@ def _tiyin(amount):
 class PaymentTransaction(models.Model):
     _inherit = 'payment.transaction'
 
+    # The uzbridge pay page for this transaction (lets e.g. POS send the customer straight there).
+    uzbridge_pay_url = fields.Char(readonly=True, copy=False)
+
     # ------------------------------------------------------------ redirect
 
-    def _uzbridge_receipt_items(self):
-        """Receipt lines from the paid invoice/order, only if they add up to the amount.
-
-        Partial payments, discounts that don't split evenly, etc. fall back to
-        uzbridge's single default line (the company's default MXIK code).
-        """
+    def _uzbridge_receipt_lines(self):
+        """(product, name, qty, total incl. tax, taxes) for what is being paid."""
         lines = []
         if 'invoice_ids' in self._fields and self.invoice_ids:
             for line in self.invoice_ids.invoice_line_ids.filtered(lambda l: l.display_type == 'product'):
@@ -32,8 +31,16 @@ class PaymentTransaction(models.Model):
         elif 'sale_order_ids' in self._fields and self.sale_order_ids:
             for line in self.sale_order_ids.order_line.filtered(lambda l: not l.display_type):
                 lines.append((line.product_id, line.name, line.product_uom_qty, line.price_total, line.tax_ids))
+        return lines
+
+    def _uzbridge_receipt_items(self):
+        """Receipt lines from the paid invoice/order, only if they add up to the amount.
+
+        Partial payments, discounts that don't split evenly, etc. fall back to
+        uzbridge's single default line (the company's default MXIK code).
+        """
         items = []
-        for product, name, qty, total, taxes in lines:
+        for product, name, qty, total, taxes in self._uzbridge_receipt_lines():
             if not total:
                 continue
             total_t = _tiyin(total)
@@ -72,6 +79,7 @@ class PaymentTransaction(models.Model):
             self._set_error(str(e))
             return {}
         self.provider_reference = invoice['id']
+        self.uzbridge_pay_url = invoice['url']
         return {'api_url': invoice['url']}
 
     # ------------------------------------------------------------ processing

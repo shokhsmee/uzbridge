@@ -3,7 +3,9 @@ from django.urls import path
 
 from amocrm import views as amo_views
 from core.api import api, register_routers
+from documents import views as doc_views
 from payments import views as pay_views
+from realty import views as realty_views
 from sms import views as sms_views
 
 register_routers()
@@ -27,4 +29,7 @@ urlpatterns = [
     path("oauth/amocrm/secrets", amo_views.install_secrets, name="amocrm-secrets"),
     path("oauth/amocrm/hook/<str:token>/", amo_views.lead_hook, name="amocrm-hook"),
     path("oauth/amocrm/dp/", amo_views.dp_hook, name="amocrm-dp"),
+    path("d/<str:token>/", doc_views.download, name="document-download"),
+    path("oauth/google/callback", realty_views.oauth_callback, name="google-oauth-callback"),
+    path("g/<str:token>/", realty_views.pull, name="realty-sheet-pull"),
 ]

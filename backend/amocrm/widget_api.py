@@ -8,10 +8,12 @@ The widget calls us with `self.$authorizedAjax`, which adds an
 from urllib.parse import urlsplit
 
 import jwt
+from django.db import transaction
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import APIKeyHeader
 
+from documents.models import DocTemplate
 from payments import services as pay
 from payments.models import Invoice
 
@@ -181,10 +183,72 @@ def _settings_out(conn: AmoConnection) -> dict:
             for t in templates
         ],
         "bills_enabled": conn.bills_enabled,
+        "docs": {
+            "enabled": conn.docs_enabled,
+            "templates": [
+                {"id": t.pk, "name": t.name, "format": t.default_format, "use": t.use_in_amocrm}
+                for t in DocTemplate.objects.filter(company=conn.company)
+            ],
+        },
+        "realty": _realty_settings(conn),
         # Stored in each Digital Pipeline trigger; amoCRM sends it back with the hook.
         "dp_key": conn.hook_token,
         "dashboard": pay_dashboard_url(conn),
     }
+
+
+def _realty_settings(conn: AmoConnection) -> dict:
+    from realty.models import Project
+    from realty.services import DEFAULT_STAGE
+
+    stages = conn.realty_stages or {}
+    return {
+        "projects": [
+            {
+                "id": p.pk,
+                "name": p.name,
+                "currency": p.currency,
+                "use": p.use_in_amocrm,
+                "units": p.units.filter(archived=False).count(),
+            }
+            for p in Project.objects.filter(company=conn.company)
+        ],
+        # per pipeline, per stage: what the deal's units become there ("" = nothing changes)
+        "pipelines": [
+            {
+                "id": pl["id"],
+                "name": pl.get("name", ""),
+                "statuses": [
+                    {
+                        "id": st["id"],
+                        "name": st.get("name", ""),
+                        "color": st.get("color"),
+                        "type": st.get("type"),
+                        "unit_status": stages.get(str(pl["id"]), {}).get(
+                            str(st["id"]), DEFAULT_STAGE.get(st["id"], "")
+                        ),
+                    }
+                    for st in pl.get("statuses", [])
+                ],
+            }
+            for pl in conn.pipelines or []
+        ],
+        "dashboard": pay_dashboard_url(conn).replace("/integrations/amocrm", "/shaxmatka"),
+    }
+
+
+def _charge_docs(conn: AmoConnection) -> None:
+    """Documents is a tariff item (per amoCRM account): pay for it before it switches on."""
+    from billing.services import InsufficientBalance, apply_change
+
+    try:
+        apply_change(conn.company, "docs")
+    except InsufficientBalance as e:
+        raise HttpError(
+            402,
+            f"uzbridge balance is too low for Documents: {e.needed // 100:,} soʻm needed, "
+            f"{e.balance // 100:,} available. Top up in the uzbridge dashboard (Kabinet).".replace(",", " "),
+        )
 
 
 def pay_dashboard_url(conn: AmoConnection) -> str:
@@ -199,6 +263,32 @@ class SettingsIn(Schema):
     sms_account_id: int | None = None
     bills_enabled: bool = True
     templates: dict[str, bool] = {}  # {"<template id>": use in amoCRM}
+    docs_enabled: bool | None = None
+    doc_templates: dict[str, bool] = {}  # {"<document template id>": use in amoCRM}
+    realty_projects: dict[str, bool] = {}  # {"<project id>": in the deal's showroom}
+    realty_stages: dict[str, dict[str, str]] | None = None  # {"<pipeline>": {"<status>": unit status or ""}}
+
+
+def _save_realty(conn: AmoConnection, data: SettingsIn) -> None:
+    from realty.models import Project, UnitStatus
+
+    for pid, use in data.realty_projects.items():
+        if str(pid).isdigit():
+            Project.objects.filter(company=conn.company, pk=int(pid)).update(use_in_amocrm=bool(use))
+    if data.realty_stages is None:
+        return
+    known = {str(pl["id"]): {str(st["id"]) for st in pl.get("statuses", [])} for pl in conn.pipelines or []}
+    allowed = {UnitStatus.INTEREST, UnitStatus.RESERVED, UnitStatus.SOLD, UnitStatus.FREE}
+    clean = {}
+    for pid, row in data.realty_stages.items():
+        for sid, status in (row or {}).items():
+            if sid not in known.get(str(pid), set()):
+                continue
+            # "" is kept too: it overrides the won/lost default with "nothing changes"
+            if status in allowed or status == "":
+                clean.setdefault(str(pid), {})[sid] = status
+    conn.realty_stages = clean
+    conn.save(update_fields=["realty_stages"])
 
 
 @router.get("/settings")
@@ -225,7 +315,17 @@ def put_settings(request, data: SettingsIn):
     if data.sms_account_id is not None:
         conn.sms_account = SmsAccount.objects.filter(company=conn.company, pk=data.sms_account_id).first()
     conn.bills_enabled = data.bills_enabled
-    conn.save(update_fields=["payment_accounts", "sms_enabled", "sms_account", "bills_enabled"])
+    switching_docs_on = data.docs_enabled is True and not conn.docs_enabled
+    if data.docs_enabled is not None:
+        conn.docs_enabled = data.docs_enabled
+    with transaction.atomic():
+        conn.save(update_fields=["payment_accounts", "sms_enabled", "sms_account", "bills_enabled", "docs_enabled"])
+        if switching_docs_on:
+            _charge_docs(conn)  # raising rolls the switch back
+    _save_realty(conn, data)
+    for tid, use in data.doc_templates.items():
+        if str(tid).isdigit():
+            DocTemplate.objects.filter(company=conn.company, pk=int(tid)).update(use_in_amocrm=bool(use))
     for tid, use in data.templates.items():
         if str(tid).isdigit():
             SmsTemplate.objects.filter(company=conn.company, pk=int(tid)).update(use_in_amocrm=bool(use))
@@ -381,3 +481,137 @@ def put_variables(request, data: list[VariableIn]):
     except ValueError as e:
         raise HttpError(422, str(e))
     return _variables_out(request.amo, with_sources=True)
+
+
+# ------------------------------------------------ documents from templates
+
+
+class GenerateIn(Schema):
+    lead_id: int
+    template_id: int
+    format: str = ""  # "docx" | "pdf"; empty = the template's default
+    user_name: str = ""
+
+
+def _docs_out(conn: AmoConnection, lead_id: int) -> dict:
+    from documents.models import GeneratedDoc
+    from documents.services import download_url
+
+    templates = DocTemplate.objects.filter(company=conn.company, use_in_amocrm=True) if conn.docs_enabled else []
+    made = GeneratedDoc.objects.filter(amo_connection=conn, lead_id=lead_id).select_related("template")
+    return {
+        "enabled": conn.docs_enabled,
+        "templates": [
+            {"id": t.pk, "name": t.name, "format": t.default_format, "next": t.format_number(t.next_number)}
+            for t in templates
+        ],
+        "documents": [
+            {
+                "id": d.pk,
+                "number": d.number,
+                "template_id": d.template_id,
+                "template": d.template.name,
+                "format": d.format,
+                "url": download_url(d),
+                "updated_at": d.updated_at,
+            }
+            for d in made
+        ],
+    }
+
+
+@router.get("/docs")
+def lead_docs(request, lead_id: int):
+    return _docs_out(request.amo, lead_id)
+
+
+@router.post("/docs/generate")
+def generate_doc(request, data: GenerateIn):
+    from documents import render
+    from documents import services as docs
+
+    from .client import AmoError
+
+    conn = request.amo
+    if not conn.docs_enabled:
+        raise HttpError(409, "Documents are switched off for this amoCRM (Настройки → uzbridge).")
+    template = DocTemplate.objects.filter(company=conn.company, pk=data.template_id, use_in_amocrm=True).first()
+    if template is None:
+        raise HttpError(404, "This template isn't available in amoCRM.")
+    try:
+        doc = docs.generate(conn, template, data.lead_id, data.format, user_label=data.user_name or "amoCRM")
+    except render.RenderError as e:
+        raise HttpError(422, str(e))
+    except AmoError as e:
+        raise HttpError(502, str(e))
+    out = _docs_out(conn, data.lead_id)
+    out["made"] = {"number": doc.number, "url": docs.download_url(doc), "format": doc.format}
+    return out
+
+
+# ------------------------------------------------ shaxmatka (units in the deal)
+
+
+class RealtySessionIn(Schema):
+    lead_id: int
+    user_name: str = ""
+
+
+class RealtyUnitIn(Schema):
+    lead_id: int
+    unit_id: int
+
+
+def _realty_out(conn: AmoConnection, lead_id: int) -> dict:
+    from realty.models import Project
+    from realty.services import money
+    from realty.showroom_api import lead_units
+
+    return {
+        "projects": Project.objects.filter(company=conn.company, use_in_amocrm=True).count(),
+        "units": [
+            {
+                "id": u.pk,
+                "project": u.project.name,
+                "label": u.label,
+                "rooms": u.rooms,
+                "area": float(u.area or 0),
+                "floor": u.floor,
+                "price": money(u),
+                "status": u.status,
+                "status_name": u.get_status_display(),
+                "reserved_until": u.reserved_until,
+            }
+            for u in lead_units(conn, lead_id)
+        ],
+    }
+
+
+@router.get("/realty")
+def realty_units(request, lead_id: int):
+    return _realty_out(request.amo, lead_id)
+
+
+@router.post("/realty/session")
+def realty_session(request, data: RealtySessionIn):
+    """A 4-hour showroom link for this deal (it can attach units to it)."""
+    from core.tenancy import company_origin
+    from realty.showroom_api import deal_key
+
+    conn = request.amo
+    key = deal_key(conn, data.lead_id, data.user_name or "amoCRM")
+    return {"url": f"{company_origin(conn.company)}/s/{key}"}
+
+
+@router.post("/realty/detach")
+def realty_detach(request, data: RealtyUnitIn):
+    from realty import services as realty
+    from realty.models import Unit
+
+    try:
+        realty.detach(request.amo, data.unit_id, data.lead_id)
+    except Unit.DoesNotExist:
+        raise HttpError(404, "Unit not found.")
+    except realty.Taken as e:
+        raise HttpError(409, str(e))
+    return _realty_out(request.amo, data.lead_id)

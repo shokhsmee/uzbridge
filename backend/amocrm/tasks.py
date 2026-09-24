@@ -99,10 +99,10 @@ def invoice_lead(conn: AmoConnection, client: AmoClient, lead: dict) -> Invoice 
     lead_id = int(lead["id"])
     price = int(lead.get("price") or 0)
     if price <= 0:
-        client.add_note(lead_id, "⚠️ uzbridge: bitim byudjeti boʻsh — summani kiriting va bosqichni qayta tanlang.")
+        client.add_note(lead_id, "⚠️ bitim byudjeti boʻsh — summani kiriting va bosqichni qayta tanlang.")
         return None
     if not amo_accounts(conn):
-        client.add_note(lead_id, "⚠️ uzbridge: toʻlov usullari sozlanmagan (Payme / Click / Uzum).")
+        client.add_note(lead_id, "⚠️ toʻlov usullari sozlanmagan (Payme / Click / Uzum).")
         return None
     try:
         _, phone = client.lead_contact(lead_id)
@@ -143,7 +143,7 @@ def create_link_for_lead(self, conn_id: int, lead_id: int):
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=20)
 def send_sms_from_lead(self, conn_id: int, lead_id: int):
-    """A manager picked a template in the lead's "uzbridge: SMS shablon" field."""
+    """A manager picked a template in the lead's "SMS shablon" field."""
     from sms.gateways import SmsError
     from sms.models import SmsTemplate
     from sms.services import recently_sent
@@ -166,7 +166,7 @@ def send_sms_from_lead(self, conn_id: int, lead_id: int):
         # Reset first, so a manager can pick the same template again later.
         client.update_lead(lead_id, {"custom_fields_values": [{"field_id": conn.sms_field_id, "values": None}]})
         if template is None or not template.is_approved or not (conn.sms_enabled and template.use_in_amocrm):
-            client.add_note(lead_id, "⚠️ uzbridge: bu shablon endi tasdiqlanmagan — SMS yuborilmadi.")
+            client.add_note(lead_id, "⚠️ bu shablon endi tasdiqlanmagan — SMS yuborilmadi.")
             return
         if recently_sent(conn.company, lead_id, template):
             return
@@ -324,7 +324,7 @@ def run_automation(job) -> str:
         template = SmsTemplate.objects.filter(company=conn.company, pk=job.template_id).first()
         if template is None or template not in amo_templates(conn):
             client.add_note(
-                job.lead_id, "⚠️ uzbridge: avtomatik SMS yuborilmadi — shablon oʻchirilgan yoki tasdiqlanmagan."
+                job.lead_id, "⚠️ avtomatik SMS yuborilmadi — shablon oʻchirilgan yoki tasdiqlanmagan."
             )
             result.append("sms: template off")
         else:

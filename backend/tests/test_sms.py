@@ -229,7 +229,7 @@ class TestSmsFromAmocrm:
                         "custom_fields": [
                             {
                                 "id": 777,
-                                "name": "uzbridge: SMS shablon",
+                                "name": "SMS shablon",
                                 "enums": [{"id": 9001, "value": "Salom {name}"}],
                             }
                         ]

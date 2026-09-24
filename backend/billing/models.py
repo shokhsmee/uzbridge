@@ -30,6 +30,7 @@ class LedgerEntry(models.Model):
 class TariffKind(models.TextChoices):
     PAYMENT = "payment", "Payment system account (Payme / Click / Uzum)"
     SMS = "sms", "SMS gateway account (Eskiz / Playmobile)"
+    DOCS = "docs", "Documents in amoCRM (per amoCRM account)"
 
 
 class TariffPrice(models.Model):

@@ -35,9 +35,4 @@ class SmsComposer(models.TransientModel):
                     number=record.name or '',
                     link=record._get_portal_payment_link() if record.state == 'posted' else '',
                 )
-        if record:
-            for var in self.env['uzbridge.sms.variable'].search([('company_id', '=', self.env.company.id)]):
-                values.setdefault(var.key, self.env['uzbridge.sms.variable']._value(record, var.path))
-        for key, value in values.items():
-            text = text.replace('{%s}' % key, value)
-        return text
+        return self.env['uzbridge.sms.template']._uzbridge_fill(text, record or None, values)

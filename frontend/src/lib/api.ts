@@ -73,3 +73,58 @@ export function when(iso: string | null | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
+
+async function raw(path: string, init: { method: string; json?: unknown; form?: FormData }): Promise<Response> {
+  const headers: Record<string, string> = { 'X-CSRFToken': csrfToken() }
+  if (companySlug) headers['X-Company'] = companySlug
+  if (init.json !== undefined) headers['Content-Type'] = 'application/json'
+  const res = await fetch(`/api${path}`, {
+    method: init.method,
+    headers,
+    credentials: 'same-origin',
+    body: init.form ?? (init.json === undefined ? undefined : JSON.stringify(init.json)),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    let body: unknown = null
+    try {
+      body = text ? JSON.parse(text) : null
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, messageOf(body, res.status), body)
+  }
+  return res
+}
+
+/** Multipart upload (e.g. a .docx template); returns the JSON answer. */
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  return (await raw(path, { method: 'POST', form })).json() as Promise<T>
+}
+
+/** POST that answers with a file: saves it in the browser under the server's filename. */
+export async function downloadPost(path: string, body: unknown, fallbackName: string): Promise<void> {
+  const res = await raw(path, { method: 'POST', json: body })
+  const cd = res.headers.get('Content-Disposition') || ''
+  const name = decodeURIComponent(cd.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? cd.match(/filename="([^"]+)"/)?.[1] ?? fallbackName)
+  const url = URL.createObjectURL(await res.blob())
+  const a = Object.assign(document.createElement('a'), { href: url, download: name })
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+/** GET a file with the company header (for <img> of private images and downloads). */
+export async function fetchBlob(path: string): Promise<Blob> {
+  return (await raw(path, { method: 'GET' })).blob()
+}
+
+export async function downloadGet(path: string, name: string): Promise<void> {
+  const url = URL.createObjectURL(await fetchBlob(path))
+  const a = Object.assign(document.createElement('a'), { href: url, download: name })
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}

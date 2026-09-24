@@ -58,25 +58,26 @@ def _cf_value(entity: dict, field_id: int) -> str:
     return ""
 
 
-def values_for_lead(conn: AmoConnection, client: AmoClient, lead_id: int) -> dict[str, str]:
-    """{keyword: value} for the company's amoCRM keywords, read fresh from the lead."""
-    variables = list(SmsVariable.objects.filter(company=conn.company, integration=SmsVariable.Integration.AMOCRM))
-    if not variables:
+def read_sources(client: AmoClient, lead_id: int, sources: list[str], lead: dict | None = None) -> dict[str, str]:
+    """{source: value} for lead / contact field sources, reading only what is asked for."""
+    sources = [s for s in dict.fromkeys(sources) if SOURCE_RE.match(s)]
+    if not sources:
         return {}
-    lead = client.request("GET", f"/api/v4/leads/{int(lead_id)}", params={"with": "contacts"}) or {}
-    contact = None
-    if any(v.source.startswith("contact.") for v in variables):
+    if lead is None or "_embedded" not in lead:
+        lead = client.request("GET", f"/api/v4/leads/{int(lead_id)}", params={"with": "contacts"}) or {}
+    contact = {}
+    if any(src.startswith("contact.") for src in sources):
         contacts = lead.get("_embedded", {}).get("contacts", [])
         main = next((c for c in contacts if c.get("is_main")), contacts[0] if contacts else None)
         contact = (client.request("GET", f"/api/v4/contacts/{main['id']}") or {}) if main else {}
     responsible = ""
-    if any(v.source == "lead.responsible" for v in variables) and lead.get("responsible_user_id"):
+    if "lead.responsible" in sources and lead.get("responsible_user_id"):
         user = client.request("GET", f"/api/v4/users/{int(lead['responsible_user_id'])}") or {}
         responsible = user.get("name", "")
 
     out = {}
-    for v in variables:
-        entity, _, rest = v.source.partition(".")
+    for src in sources:
+        entity, _, rest = src.partition(".")
         if entity == "lead":
             if rest.startswith("cf."):
                 value = _cf_value(lead, int(rest[3:]))
@@ -87,7 +88,15 @@ def values_for_lead(conn: AmoConnection, client: AmoClient, lead_id: int) -> dic
             else:
                 value = str(lead.get(rest) or "")
         else:
-            contact = contact or {}
             value = _cf_value(contact, int(rest[3:])) if rest.startswith("cf.") else str(contact.get("name") or "")
-        out[v.key] = value
+        out[src] = value
     return out
+
+
+def values_for_lead(conn: AmoConnection, client: AmoClient, lead_id: int, lead: dict | None = None) -> dict[str, str]:
+    """{keyword: value} for the company's amoCRM keywords, read fresh from the lead."""
+    variables = list(SmsVariable.objects.filter(company=conn.company, integration=SmsVariable.Integration.AMOCRM))
+    if not variables:
+        return {}
+    read = read_sources(client, lead_id, [v.source for v in variables], lead)
+    return {v.key: read.get(v.source, "") for v in variables}

@@ -61,6 +61,14 @@ class AmoConnection(models.Model):
         "sms.SmsAccount", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     sms_enabled = models.BooleanField(default=True)
+    # Documents from templates in the lead card (Настройки → uzbridge → Documents).
+    docs_enabled = models.BooleanField(default=False)
+    # Shaxmatka: {"<pipeline_id>": {"<status_id>": "interest|reserved|sold|free"}}; missing =
+    # the default (won 142 → sold, lost 143 → free). realty_fields: ids of the unit fields.
+    realty_stages = models.JSONField(default=dict, blank=True)
+    realty_fields = models.JSONField(default=dict, blank=True)
+    # The lead card's "uzbridge" tab (amoCRM field group) that holds all our fields.
+    field_group = models.CharField(max_length=64, blank=True)
     # Mirror each payment link as an invoice in amoCRM's "Счета/покупки" catalog.
     bills_enabled = models.BooleanField(default=True)
     bills_catalog_id = models.BigIntegerField(null=True, blank=True)

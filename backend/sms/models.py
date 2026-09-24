@@ -72,7 +72,7 @@ class SmsTemplate(models.Model):
     text = models.TextField()
     # Eskiz: moderation | inproccess | service | reklama | rejected; ours: local.
     status = models.CharField(max_length=16, default="local")
-    # Enum id of this template in the amoCRM "uzbridge: SMS" lead field.
+    # Enum id of this template in the amoCRM "SMS shablon" lead field.
     amo_enum_id = models.BigIntegerField(null=True, blank=True)
     # Off: kept out of amoCRM (the lead field and the widget's list).
     use_in_amocrm = models.BooleanField(default=True)

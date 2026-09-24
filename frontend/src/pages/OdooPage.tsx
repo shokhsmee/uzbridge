@@ -30,6 +30,7 @@ export default function OdooPage({ me }: { me: Me }) {
               <li>{t('odoo.s3')}</li>
               <li>{t('odoo.s4')}</li>
               <li>{t('odoo.s5')}</li>
+              <li>{t('odoo.s6')}</li>
             </ol>
           </Card>
           <KeysCard integration="odoo" canManage={canManage} defaultName="Odoo" />

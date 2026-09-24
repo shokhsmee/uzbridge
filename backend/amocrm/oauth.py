@@ -58,7 +58,7 @@ def start_install(company, user) -> dict:
         "description": (
             "Payme, Click va Uzum toʻlov havolalari bitimdan; toʻlovdan soʻng bitim “Toʻlandi” bosqichiga oʻtadi."
         ),
-        "scopes": "crm,notifications",
+        "scopes": "crm,files,notifications",
     }
 
 

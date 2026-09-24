@@ -80,7 +80,28 @@ define(['jquery'], function ($) {
     '.uzb .uzb-sw input:checked + span{background:var(--accent)}.uzb .uzb-sw input:checked + span:before{transform:translateX(16px)}',
     '.uzb .uzb-sw input:disabled + span{opacity:.45;cursor:default}',
     // digital pipeline form
-    '.uzb-dp{padding:4px 0 8px}.uzb-dp > label:first-child{margin-top:0}'
+    '.uzb-dp{padding:4px 0 8px}.uzb-dp > label:first-child{margin-top:0}',
+    // shaxmatka: unit statuses, the showroom overlay, the stage table
+    '.uzb .p-free{background:#e2f3e8;color:#1b7a47}.uzb .p-interest{background:#e3ecfa;color:#2459ab}',
+    '.uzb .p-reserved{background:#fbf0d6;color:#8a5f00}.uzb .p-sold{background:var(--soft);color:var(--muted)}.uzb .p-closed{background:var(--soft);color:var(--muted)}',
+    '.uzb-sr{position:fixed;inset:0;z-index:100000;background:rgba(10,20,20,.55);display:flex;flex-direction:column;padding:18px}',
+    '.uzb-sr-bar{display:flex;justify-content:flex-end;margin-bottom:8px}',
+    '.uzb-sr-bar button{height:34px;padding:0 16px;border:0;border-radius:8px;background:#fff;color:#14201f;font-weight:600;cursor:pointer;font-size:13px}',
+    '.uzb-sr iframe{flex:1;width:100%;border:0;border-radius:12px;background:#f3f5f5}',
+    '.uzb-page .uzb-stage{display:grid;grid-template-columns:1fr 200px;gap:10px;align-items:center;padding:7px 18px;border-top:1px solid var(--line)}',
+    '.uzb-page .uzb-stage i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:middle}',
+    '.uzb-page .uzb-pipe{padding:10px 18px 6px;border-top:1px solid var(--line);font-weight:600;background:var(--soft)}',
+    '.uzb-page .uzb-stage select{height:32px}',
+    '.uzb-page .uzb-card-h a,.uzb-page .uzb-note a{color:var(--accent-ink);text-decoration:none;font-weight:500}',
+    // settings page: one tab per service the account has
+    '.uzb-page .uzb-ptabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 0 18px;overflow-x:auto}',
+    '.uzb-page .uzb-ptab{padding:10px 16px;border:0;background:none;color:var(--muted);font-weight:600;font-size:13px;cursor:pointer;',
+    'border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}',
+    '.uzb-page .uzb-ptab:hover{color:var(--ink)}.uzb-page .uzb-ptab.on{color:var(--ink);border-bottom-color:var(--accent)}',
+    '.uzb-page .uzb-ptab i{font-style:normal;display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:7px;vertical-align:1px;background:var(--line)}',
+    '.uzb-page .uzb-ptab i.on{background:var(--accent)}',
+    '.uzb-page [data-pane][hidden]{display:none}',
+    '.uzb-page .uzb-more{color:var(--muted);font-size:12px;margin:-6px 0 16px}.uzb-page .uzb-more a{color:var(--accent-ink)}'
   ].join('');
 
   var DELAYS = [0, 5, 15, 30, 60, 180, 360, 720, 1440, 2880, 4320, 10080];
@@ -107,7 +128,7 @@ define(['jquery'], function ($) {
 
   var Widget = function () {
     var self = this;
-    var state = { leadId: 0, busy: false, tab: 'pay', ctx: null };
+    var state = { leadId: 0, busy: false, tab: 'pay', ctx: null, realty: null };
 
     function t(key) {
       return self.i18n('ui')[key] || key;
@@ -158,8 +179,12 @@ define(['jquery'], function ($) {
       return t('error');
     }
 
+    // Versioned: amoCRM keeps the page (and an older widget's styles) across a widget upgrade.
+    var CSS_ID = 'uzb-css-151';
     function css() {
-      if (!document.getElementById('uzb-css')) $('head').append('<style id="uzb-css">' + CSS + '</style>');
+      if (document.getElementById(CSS_ID)) return;
+      $('style[id^="uzb-css"]').remove();
+      $('head').append('<style id="' + CSS_ID + '">' + CSS + '</style>');
     }
 
     function toggle(id, checked, disabled, attrs) {
@@ -217,23 +242,110 @@ define(['jquery'], function ($) {
       );
     }
 
+    function docsPane(docs) {
+      var tpls = docs.templates;
+      var cur = tpls.filter(function (x) { return x.id === state.docTpl; })[0] || tpls[0];
+      state.docTpl = cur.id;
+      var fmt = state.docFmt || cur.format;
+      var opts = tpls.map(function (x) {
+        return '<option value="' + x.id + '"' + (x.id === cur.id ? ' selected' : '') + '>' + esc(x.name) + '</option>';
+      }).join('');
+      var made = docs.documents.length
+        ? docs.documents.map(function (d) {
+            return '<div class="uzb-inv"><div class="uzb-row"><span class="uzb-amt">№ ' + esc(d.number) + '</span>' +
+              '<span class="uzb-pill p-on">' + esc(d.format === 'pdf' ? 'PDF' : 'Word') + '</span></div>' +
+              '<div class="uzb-meta">' + esc(d.template) + '</div>' +
+              '<div class="uzb-link"><a class="uzb-mini" href="' + esc(d.url) + '" target="_blank" rel="noopener" style="text-decoration:none;line-height:26px">' + esc(t('d_open')) + '</a>' +
+              '<button class="uzb-mini" data-doc-regen="' + d.template_id + '" data-doc-fmt="' + esc(d.format) + '">' + esc(t('d_regen')) + '</button></div></div>';
+          }).join('')
+        : '<p class="uzb-empty">' + esc(t('d_none')) + '</p>';
+      return (
+        '<label for="uzb-doc-tpl">' + esc(t('d_template')) + '</label><select id="uzb-doc-tpl">' + opts + '</select>' +
+        '<div class="uzb-meta" style="margin-top:6px">' + esc(t('d_next')) + ' <b>' + esc(cur.next) + '</b></div>' +
+        '<label>' + esc(t('d_format')) + '</label><div class="uzb-tabs" style="margin:0">' +
+        '<button class="uzb-tab' + (fmt === 'docx' ? ' on' : '') + '" data-doc-format="docx">Word</button>' +
+        '<button class="uzb-tab' + (fmt === 'pdf' ? ' on' : '') + '" data-doc-format="pdf">PDF</button></div>' +
+        '<button class="uzb-btn" id="uzb-doc-gen"' + (state.busy ? ' disabled' : '') + '>' + esc(state.busy ? t('d_making') : t('d_generate')) + '</button>' +
+        '<h4>' + esc(t('d_made')) + '</h4>' + made
+      );
+    }
+
+    var UNIT_ST = ['free', 'interest', 'reserved', 'sold', 'closed'];
+
+    function realtyPane(r) {
+      var list = r.units.length
+        ? r.units.map(function (u) {
+            var off = u.status === 'sold' ? '' :
+              '<button class="uzb-mini" title="' + esc(t('r_detach')) + '" data-unit-detach="' + u.id + '">✕</button>';
+            return '<div class="uzb-inv"><div class="uzb-row"><span class="uzb-amt">' + esc(u.label) + '</span>' +
+              '<span class="uzb-pill p-' + esc(u.status) + '">' + esc(u.status_name) + '</span></div>' +
+              '<div class="uzb-row"><div class="uzb-meta">' + esc(u.project) + ' · ' +
+              esc(u.rooms ? u.rooms + t('r_rooms') : t('r_studio')) + ' · ' + esc(u.area) + ' m² · ' + esc(t('r_floor')) + ' ' + esc(u.floor) +
+              '<br><b style="color:var(--ink)">' + esc(u.price) + '</b></div>' + off + '</div></div>';
+          }).join('')
+        : '<p class="uzb-empty">' + esc(t('r_none')) + '</p>';
+      return '<button class="uzb-btn" id="uzb-showroom" style="margin-top:4px"' + (state.busy ? ' disabled' : '') + '>' +
+        esc(t('r_open')) + '</button>' + '<h4>' + esc(t('r_units')) + '</h4>' + list +
+        (state.realtyChanged ? '<div class="uzb-msg uzb-okmsg">' + esc(t('r_reload_hint')) +
+          ' <a href="#" id="uzb-card-reload">' + esc(t('r_reload')) + '</a></div>' : '');
+    }
+
+    // The showroom (our page) full screen over the card; it tells us when a unit was attached.
+    function openShowroom() {
+      state.busy = true;
+      paint(state.ctx);
+      call('POST', '/realty/session', { lead_id: state.leadId, user_name: userName() })
+        .done(function (res) {
+          state.busy = false;
+          paint(state.ctx);
+          var $sr = $('<div class="uzb-sr"><div class="uzb-sr-bar"><button type="button">' + esc(t('r_close')) + ' ✕</button></div>' +
+            '<iframe allow="clipboard-write"></iframe></div>');
+          $sr.find('iframe').attr('src', res.url);
+          var origin = res.url.split('/').slice(0, 3).join('/');
+          var onMsg = function (e) {
+            var d = e.originalEvent.data;
+            if (e.originalEvent.origin !== origin || !d || d.type !== 'uzbridge-realty') return;
+            state.realtyChanged = true;
+          };
+          var close = function () {
+            $(window).off('message.uzbsr', onMsg);
+            $(document).off('keydown.uzbsr');
+            $sr.remove();
+            if (state.realtyChanged) load();
+          };
+          $(window).on('message.uzbsr', onMsg);
+          $(document).on('keydown.uzbsr', function (e) { if (e.key === 'Escape') close(); });
+          $sr.on('click', '.uzb-sr-bar button', close);
+          $('body').append($sr);
+        })
+        .fail(function (xhr) {
+          state.busy = false;
+          paint(state.ctx, esc(errorText(xhr)), true);
+        });
+    }
+
     function paint(ctx, message, isError) {
-      var pay = ctx.providers.length > 0;
-      var sms = ctx.sms_ready;
-      if (!pay && sms) state.tab = 'sms';
-      if (pay && !sms) state.tab = 'pay';
+      var docs = state.docs;
+      var tabs = [];
+      if (ctx.providers.length > 0) tabs.push(['pay', t('tab_pay')]);
+      if (ctx.sms_ready) tabs.push(['sms', t('tab_sms')]);
+      if (docs && docs.enabled && docs.templates.length) tabs.push(['docs', t('tab_docs')]);
+      if (state.realty && (state.realty.projects > 0 || state.realty.units.length)) tabs.push(['realty', t('tab_realty')]);
+      var keys = tabs.map(function (x) { return x[0]; });
+      if (keys.indexOf(state.tab) < 0) state.tab = keys[0];
       var html = '<div class="uzb' + theme() + '">' +
         '<div class="uzb-meta" style="margin:0 0 8px">uzbridge · <b style="color:var(--ink)">' + esc(ctx.company) + '</b></div>';
-      if (!pay && !sms) {
+      if (!tabs.length) {
         html += '<div class="uzb-msg">' + esc(t('nothing_on')) + '</div>';
       } else {
-        if (pay && sms) {
-          html += '<div class="uzb-tabs">' +
-            '<button class="uzb-tab' + (state.tab === 'pay' ? ' on' : '') + '" data-tab="pay">' + esc(t('tab_pay')) + '</button>' +
-            '<button class="uzb-tab' + (state.tab === 'sms' ? ' on' : '') + '" data-tab="sms">' + esc(t('tab_sms')) + '</button></div>';
+        if (tabs.length > 1) {
+          html += '<div class="uzb-tabs">' + tabs.map(function (x) {
+            return '<button class="uzb-tab' + (state.tab === x[0] ? ' on' : '') + '" data-tab="' + x[0] + '">' + esc(x[1]) + '</button>';
+          }).join('') + '</div>';
         }
-        if (message) html += '<div class="uzb-msg' + (isError ? ' uzb-err' : ' uzb-okmsg') + '">' + esc(message) + '</div>';
-        html += state.tab === 'sms' ? smsPane(ctx) : payPane(ctx);
+        if (message) html += '<div class="uzb-msg' + (isError ? ' uzb-err' : ' uzb-okmsg') + '">' + message + '</div>';
+        html += state.tab === 'sms' ? smsPane(ctx) : state.tab === 'docs' ? docsPane(docs) :
+          state.tab === 'realty' ? realtyPane(state.realty) : payPane(ctx);
       }
       $root().html(html + '</div>');
     }
@@ -244,10 +356,16 @@ define(['jquery'], function ($) {
         $root().html('<div class="uzb' + theme() + '"><p class="uzb-empty">' + esc(t('save_lead_first')) + '</p></div>');
         return;
       }
-      call('GET', '/context?lead_id=' + state.leadId)
-        .done(function (ctx) {
-          state.ctx = ctx;
-          paint(ctx, message, isError);
+      $.when(
+        call('GET', '/context?lead_id=' + state.leadId),
+        call('GET', '/docs?lead_id=' + state.leadId),
+        call('GET', '/realty?lead_id=' + state.leadId)
+      )
+        .done(function (a, b, c) {
+          state.ctx = a[0];
+          state.docs = b[0];
+          state.realty = c[0];
+          paint(state.ctx, message === undefined ? '' : esc(message), isError);
         })
         .fail(function (xhr) {
           $root().html('<div class="uzb' + theme() + '"><div class="uzb-msg uzb-err">' + esc(errorText(xhr)) + '</div></div>');
@@ -280,6 +398,55 @@ define(['jquery'], function ($) {
       return $holder.find('.uzb-var').map(function () {
         return { key: $(this).find('[data-var-key]').val().trim().replace(/[{}]/g, '').toLowerCase(), source: $(this).find('[data-var-source]').val() };
       }).get().filter(function (v) { return v.key || v.source; });
+    }
+
+    function docsSection(docs, dashboard) {
+      var rows = docs.templates.length
+        ? docs.templates.map(function (x) {
+            return '<div class="uzb-item"><div class="uzb-grow"><div><b>' + esc(x.name) + '</b></div>' +
+              '<div class="uzb-meta">' + esc(x.format === 'pdf' ? 'PDF' : 'Word') + '</div></div>' +
+              toggle('uzb-d-' + x.id, x.use, !docs.enabled, ' data-doc-template="' + x.id + '"') + '</div>';
+          }).join('')
+        : '<div class="uzb-note">' + esc(t('d_no_templates')) + '</div>';
+      var docsUrl = (dashboard || '').replace(/\/integrations\/amocrm$/, '/documents');
+      return '<section class="uzb-card"><div class="uzb-card-h"><b>' + esc(t('d_title')) + '</b><p>' + esc(t('d_hint')) +
+        ' <a href="' + esc(docsUrl) + '" target="_blank" rel="noopener">' + esc(t('d_edit')) + ' ↗</a></p></div>' +
+        '<div class="uzb-item"><div class="uzb-grow"><div><b>' + esc(t('d_on')) + '</b></div></div>' +
+        toggle('uzb-docs', docs.enabled, false) + '</div>' + rows + '</section>';
+    }
+
+    function realtySection(r, dashboard) {
+      var url = (dashboard || '').replace(/\/integrations\/amocrm$/, '/shaxmatka');
+      var head = '<section class="uzb-card"><div class="uzb-card-h"><b>' + esc(t('r_title')) + '</b><p>' + esc(t('r_hint')) +
+        ' <a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(t('r_edit')) + ' ↗</a></p></div>';
+      if (!r.projects.length) return head + '<div class="uzb-note">' + esc(t('r_no_projects')) + '</div></section>';
+      var projects = r.projects.map(function (p) {
+        return '<div class="uzb-item"><div class="uzb-grow"><div><b>' + esc(p.name) + '</b></div>' +
+          '<div class="uzb-meta">' + esc(p.units) + ' ' + esc(t('r_units_n')) + ' · ' + esc(p.currency) + '</div></div>' +
+          toggle('uzb-rp-' + p.id, p.use, false, ' data-realty-project="' + p.id + '"') + '</div>';
+      }).join('');
+      var opts = [['', t('r_st_none')]].concat(UNIT_ST.slice(0, 4).map(function (s) { return [s, t('r_st_' + s)]; }));
+      var stages = r.pipelines.map(function (pl) {
+        // "Неразобранное" (type 1): a deal can't sit there with a unit, so there's nothing to set
+        var list = pl.statuses.filter(function (st) { return st.type !== 1 && !/^неразобран|^incoming|^unsorted/i.test(st.name || ''); });
+        return '<div class="uzb-pipe">' + esc(pl.name) + '</div>' + list.map(function (st) {
+          return '<div class="uzb-stage"><div><i style="background:' + esc(st.color || '#ccc') + '"></i>' + esc(st.name) + '</div>' +
+            '<select data-stage-pipe="' + pl.id + '" data-stage="' + st.id + '">' + opts.map(function (o) {
+              return '<option value="' + o[0] + '"' + (o[0] === st.unit_status ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+            }).join('') + '</select></div>';
+        }).join('');
+      }).join('');
+      return head + projects + '<div class="uzb-note"><b style="color:var(--ink)">' + esc(t('r_stages')) + '</b><br>' +
+        esc(t('r_stages_hint')) + '</div>' + stages + '</section>';
+    }
+
+    function readStages($holder) {
+      var out = {};
+      $holder.find('[data-stage]').each(function () {
+        var pl = $(this).attr('data-stage-pipe');
+        (out[pl] = out[pl] || {})[$(this).attr('data-stage')] = $(this).val();
+      });
+      return out;
     }
 
     function settingsPage($holder, data, message, isError) {
@@ -329,30 +496,72 @@ define(['jquery'], function ($) {
           : '<div class="uzb-note">' + esc(t('sms_none')) + '</div>';
       }
 
+      var anyPay = data.providers.some(function (p) { return p.accounts.some(function (a) { return a.configured; }); });
+      var panes = [];
+      if (anyPay) {
+        panes.push(['pay', t('tab_pay'), null,
+          '<section class="uzb-card"><div class="uzb-card-h"><b>' + esc(t('s_pay')) + '</b><p>' + esc(t('s_pay_hint')) + '</p></div>' +
+          providers + bills + '</section>',
+          data.providers.some(function (p) { return p.accounts.some(function (a) { return a.use; }); })]);
+      }
+      if (data.sms.ready) {
+        panes.push(['sms', 'SMS', null,
+          '<section class="uzb-card"><div class="uzb-card-h"><b>SMS</b><p>' + esc(t('s_sms_hint')) + '</p></div>' + sms + '</section>' +
+          '<section class="uzb-card"><div class="uzb-card-h"><b>' + esc(t('s_tpl')) + '</b><p>' + esc(t('s_tpl_hint')) + '</p></div>' + tpls + '</section>' +
+          (vars ? varsSection(vars) : ''),
+          data.sms.enabled]);
+      }
+      if (data.docs.templates.length) {
+        panes.push(['docs', t('tab_docs'), null, docsSection(data.docs, data.dashboard), data.docs.enabled]);
+      }
+      if (data.realty && data.realty.projects.length) {
+        panes.push(['realty', t('r_title'), null, realtySection(data.realty, data.dashboard),
+          data.realty.projects.some(function (p) { return p.use; })]);
+      }
+      if (anyPay || data.sms.ready) {
+        panes.push(['auto', t('tab_auto'), null,
+          '<section class="uzb-card"><div class="uzb-card-h"><b>' + esc(t('s_auto')) + '</b><p>' + esc(t('s_auto_hint')) + '</p></div>' +
+          '<ol><li>' + esc(t('s_auto_1')) + '</li><li>' + esc(t('s_auto_2')) + '</li><li>' + esc(t('s_auto_3')) + '</li></ol></section>',
+          null]);
+      }
+      var keys = panes.map(function (x) { return x[0]; });
+      if (keys.indexOf(state.settingsTab) < 0) state.settingsTab = keys[0];
+      var tabsHtml = panes.length > 1
+        ? '<nav class="uzb-ptabs">' + panes.map(function (x) {
+            var dot = x[4] === null ? '' : '<i class="' + (x[4] ? 'on' : '') + '"></i>';
+            return '<button type="button" class="uzb-ptab' + (x[0] === state.settingsTab ? ' on' : '') + '" data-ptab="' + x[0] + '">' + esc(x[1]) + dot + '</button>';
+          }).join('') + '</nav>'
+        : '';
+      var body = panes.length
+        ? panes.map(function (x) {
+            return '<div data-pane="' + x[0] + '"' + (x[0] === state.settingsTab ? '' : ' hidden') + '>' + x[3] + '</div>';
+          }).join('')
+        : '<section class="uzb-card"><div class="uzb-note">' + esc(t('s_nothing')) + '</div></section>';
+
       $holder.html(
         '<div class="uzb uzb-page' + theme() + '">' +
         '<div class="uzb-head"><div><h2>uzbridge</h2><div class="uzb-meta">' + esc(data.company) + ' · ' + esc(data.account || '') + '</div></div>' +
         '<a href="' + esc(data.dashboard) + '" target="_blank" rel="noopener">' + esc(t('s_dashboard')) + ' ↗</a></div>' +
-
-        '<section class="uzb-card"><div class="uzb-card-h"><b>' + esc(t('s_pay')) + '</b><p>' + esc(t('s_pay_hint')) + '</p></div>' +
-        providers + bills + '</section>' +
-
-        '<section class="uzb-card"><div class="uzb-card-h"><b>SMS</b><p>' + esc(t('s_sms_hint')) + '</p></div>' + sms + '</section>' +
-
-        (data.sms.ready
-          ? '<section class="uzb-card"><div class="uzb-card-h"><b>' + esc(t('s_tpl')) + '</b><p>' + esc(t('s_tpl_hint')) + '</p></div>' + tpls + '</section>'
+        tabsHtml +
+        (panes.length && panes.length < 5
+          ? '<p class="uzb-more">' + esc(t('s_more')) + ' <a href="' + esc(data.dashboard) + '" target="_blank" rel="noopener">' + esc(t('s_dashboard')) + ' ↗</a></p>'
           : '') +
-        (data.sms.ready && vars ? varsSection(vars) : '') +
-
-        '<section class="uzb-card"><div class="uzb-card-h"><b>' + esc(t('s_auto')) + '</b><p>' + esc(t('s_auto_hint')) + '</p></div>' +
-        '<ol><li>' + esc(t('s_auto_1')) + '</li><li>' + esc(t('s_auto_2')) + '</li><li>' + esc(t('s_auto_3')) + '</li></ol></section>' +
-
-        '<div class="uzb-save"><button class="uzb-btn" id="uzb-s-save">' + esc(t('s_save')) + '</button>' +
-        (message ? '<div class="uzb-msg' + (isError ? ' uzb-err' : ' uzb-okmsg') + '">' + esc(message) + '</div>' : '') +
-        '</div></div>'
+        body +
+        (panes.length
+          ? '<div class="uzb-save"><button class="uzb-btn" id="uzb-s-save">' + esc(t('s_save')) + '</button>' +
+            (message ? '<div class="uzb-msg' + (isError ? ' uzb-err' : ' uzb-okmsg') + '">' + esc(message) + '</div>' : '') + '</div>'
+          : '') +
+        '</div>'
       );
 
       $holder.off('.uzbs')
+        .on('click.uzbs', '[data-ptab]', function () {
+          state.settingsTab = $(this).attr('data-ptab');
+          $holder.find('[data-ptab]').removeClass('on');
+          $(this).addClass('on');
+          $holder.find('[data-pane]').attr('hidden', true);
+          $holder.find('[data-pane="' + state.settingsTab + '"]').removeAttr('hidden');
+        })
         .on('change.uzbs', '[data-account]', function () {
           // one cash desk per provider: switching one on switches its siblings off
           if (!$(this).prop('checked')) return;
@@ -360,6 +569,9 @@ define(['jquery'], function ($) {
           $holder.find('[data-kind="' + $(this).attr('data-kind') + '"]').each(function () {
             if (this !== me) $(this).prop('checked', false);
           });
+        })
+        .on('change.uzbs', '#uzb-docs', function () {
+          $holder.find('[data-doc-template]').prop('disabled', !$(this).prop('checked'));
         })
         .on('change.uzbs', '#uzb-sms', function () {
           $holder.find('[data-template]').each(function () {
@@ -388,8 +600,18 @@ define(['jquery'], function ($) {
             accounts: $holder.find('[data-account]:checked').map(function () { return Number($(this).attr('data-account')); }).get(),
             sms_enabled: data.sms.ready ? $('#uzb-sms').prop('checked') : data.sms.enabled,
             sms_account_id: $('#uzb-sms-acc').length ? Number($('#uzb-sms-acc').val()) : null,
-            bills_enabled: $('#uzb-bills').prop('checked'),
-            templates: templates
+            bills_enabled: $('#uzb-bills').length ? $('#uzb-bills').prop('checked') : data.bills_enabled,
+            docs_enabled: $('#uzb-docs').length ? $('#uzb-docs').prop('checked') : data.docs.enabled,
+            doc_templates: $holder.find('[data-doc-template]').get().reduce(function (acc, el) {
+              acc[$(el).attr('data-doc-template')] = $(el).prop('checked');
+              return acc;
+            }, {}),
+            templates: templates,
+            realty_projects: $holder.find('[data-realty-project]').get().reduce(function (acc, el) {
+              acc[$(el).attr('data-realty-project')] = $(el).prop('checked');
+              return acc;
+            }, {}),
+            realty_stages: data.realty && data.realty.pipelines.length ? readStages($holder) : null
           })
             .then(function (fresh) {
               if (!rows) return $.Deferred().resolve(fresh, null).promise();
@@ -412,10 +634,13 @@ define(['jquery'], function ($) {
       css();
       var $holder = $('#list_page_holder');
       $holder.html('<div class="uzb uzb-page' + theme() + '"><p class="uzb-empty">…</p></div>');
-      $.when(call('GET', '/settings'), call('GET', '/variables'))
-        .done(function (a, b) {
+      // The {keywords} list reads amoCRM's fields; if that fails the rest of the page still opens.
+      var vars = $.Deferred();
+      call('GET', '/variables').done(function (v) { vars.resolve(v); }).fail(function () { vars.resolve(null); });
+      $.when(call('GET', '/settings'), vars)
+        .done(function (a, v) {
           var data = a[0];
-          data.vars = b[0];
+          data.vars = v;
           settingsPage($holder, data);
         })
         .fail(function (xhr) {
@@ -547,6 +772,51 @@ define(['jquery'], function ($) {
             state.tab = $(this).attr('data-tab');
             if (state.ctx) paint(state.ctx);
           })
+          .on('click.uzb', '#uzb-showroom', function () {
+            openShowroom();
+          })
+          .on('click.uzb', '#uzb-card-reload', function (e) {
+            e.preventDefault();
+            window.location.reload();
+          })
+          .on('click.uzb', '[data-unit-detach]', function () {
+            if (!window.confirm(t('r_detach_confirm'))) return;
+            $(this).prop('disabled', true);
+            call('POST', '/realty/detach', { lead_id: state.leadId, unit_id: Number($(this).attr('data-unit-detach')) })
+              .done(function (res) {
+                state.realty = res;
+                state.realtyChanged = true;
+                paint(state.ctx, esc(t('r_detached')));
+              })
+              .fail(function (xhr) { paint(state.ctx, esc(errorText(xhr)), true); });
+          })
+          .on('change.uzb', '#uzb-doc-tpl', function () {
+            state.docTpl = Number($(this).val());
+            state.docFmt = null;
+            paint(state.ctx);
+          })
+          .on('click.uzb', '[data-doc-format]', function () {
+            state.docFmt = $(this).attr('data-doc-format');
+            paint(state.ctx);
+          })
+          .on('click.uzb', '#uzb-doc-gen, [data-doc-regen]', function () {
+            var regen = $(this).attr('data-doc-regen');
+            var tplId = regen ? Number(regen) : state.docTpl;
+            var fmt = regen ? $(this).attr('data-doc-fmt') : (state.docFmt || '');
+            state.busy = true;
+            paint(state.ctx);
+            call('POST', '/docs/generate', { lead_id: state.leadId, template_id: tplId, format: fmt, user_name: userName() })
+              .done(function (res) {
+                state.busy = false;
+                state.docs = res;
+                paint(state.ctx, esc(t('d_ready')) + ' № ' + esc(res.made.number) +
+                  ' — <a href="' + esc(res.made.url) + '" target="_blank" rel="noopener">' + esc(t('d_open')) + '</a>');
+              })
+              .fail(function (xhr) {
+                state.busy = false;
+                paint(state.ctx, esc(errorText(xhr)), true);
+              });
+          })
           .on('change.uzb', '#uzb-sms-tpl', function () {
             var id = Number($(this).val());
             var tpl = (state.ctx && state.ctx.sms_templates || []).filter(function (x) { return x.id === id; })[0];
@@ -605,6 +875,7 @@ define(['jquery'], function ($) {
       },
       destroy: function () {
         $(document).off('.uzb');
+        $('.uzb-sr').remove();
       }
     };
     return this;

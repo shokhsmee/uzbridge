@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="uzbridge_pos.UzbridgeLinkPopup">
+        <Dialog title.translate="Payment link" footer="false" bodyClass="'d-flex flex-column align-items-center gap-3 p-4'">
+            <img t-att-src="qr" class="w-50" alt="QR code of the payment link"/>
+            <div class="fs-4 fw-bold"><t t-esc="props.formattedAmount"/></div>
+            <div class="text-muted small">Payme · Click · Uzum Bank · <t t-esc="props.orderName"/></div>
+            <div class="input-group w-100">
+                <input class="form-control font-monospace small" readonly="readonly" t-att-value="props.link"
+                       t-ref="link" t-on-focus="(ev) => ev.target.select()"/>
+                <button class="btn btn-primary" t-on-click="copy">
+                    <t t-if="state.copied">Copied</t><t t-else="">Copy</t>
+                </button>
+            </div>
+            <div class="text-muted small text-center">When the customer pays, the order turns paid here by itself.</div>
+        </Dialog>
+    </t>
+</templates>

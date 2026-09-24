@@ -85,14 +85,20 @@ class AmoClient:
         if self.conn.expires_at - timezone.now() < oauth.REFRESH_MARGIN:
             self._refresh(force=False)
 
-    def request(self, method: str, path: str, **kw) -> dict | list | None:
+    def request(self, method: str, path: str, *, mark_errors: bool = True, **kw) -> dict | list | None:
+        """Call amoCRM. `path` may also be a full https URL (the account's file service).
+
+        mark_errors=False: a 402/403 doesn't flag the whole connection (e.g. the
+        integration just lacks the "files" scope).
+        """
         self._ensure_token()
+        url = path if path.startswith("https://") else f"{self.conn.base_url}{path}"
         for attempt in range(4):
             throttle().wait(str(self.conn.account_id), settings.AMOCRM_RATE_PER_SECOND)
             resp = self.http.request(
                 method,
-                f"{self.conn.base_url}{path}",
-                headers={"Authorization": f"Bearer {self.conn.access_token}"},
+                url,
+                headers={"Authorization": f"Bearer {self.conn.access_token}", **kw.pop("headers", {})},
                 **kw,
             )
             if resp.status_code == 401 and attempt == 0:
@@ -101,7 +107,7 @@ class AmoClient:
             if resp.status_code == 429:
                 time.sleep(1 + attempt)
                 continue
-            if resp.status_code in (402, 403):
+            if resp.status_code in (402, 403) and mark_errors:
                 self._mark_error(resp)
             if resp.status_code == 204:
                 return None

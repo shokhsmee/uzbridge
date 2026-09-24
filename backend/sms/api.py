@@ -251,7 +251,7 @@ def delete_template(request, template_id: int):
 
 @router.post("/amocrm/sync")
 def sync_amocrm_field(request):
-    """Put the approved templates into amoCRM's "uzbridge: SMS shablon" lead field."""
+    """Put the approved templates into amoCRM's "SMS shablon" lead field (uzbridge tab)."""
     from amocrm.client import AmoError
     from amocrm.models import AmoConnection
     from amocrm.services import sync_sms_field

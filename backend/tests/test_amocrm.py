@@ -381,8 +381,8 @@ class TestLinkStage:
                 json={
                     "_embedded": {
                         "custom_fields": [
-                            {"id": 501, "name": "uzbridge: toʻlov havolasi"},
-                            {"id": 502, "name": "uzbridge: toʻlov holati"},
+                            {"id": 501, "name": "Toʻlov havolasi"},
+                            {"id": 502, "name": "Toʻlov holati"},
                         ]
                     }
                 },

@@ -239,3 +239,58 @@ def disconnect(request):
         conn.last_error = ""
         conn.save(update_fields=["status", "access_token", "refresh_token", "last_error"])
     return _out(conn)
+
+
+# ------------------------------------------------ SMS / document keywords from amoCRM fields
+
+
+class VariableIn(Schema):
+    key: str
+    source: str
+    label: str = ""
+
+
+def _vars_out(conn: AmoConnection) -> dict:
+    from sms.models import BUILTIN_VARIABLES, SmsVariable
+
+    from .variables import sources
+
+    try:
+        src = sources(AmoClient(conn))
+    except AmoError:
+        src = []
+    return {
+        "builtins": list(BUILTIN_VARIABLES),
+        "variables": [
+            {"key": v.key, "source": v.source, "label": v.label}
+            for v in SmsVariable.objects.filter(company=conn.company, integration=SmsVariable.Integration.AMOCRM)
+        ],
+        "sources": src,
+    }
+
+
+@router.get("/variables")
+def get_variables(request):
+    """The company's {keywords} and the amoCRM lead / contact fields they can read (?conn=<id>)."""
+    conn = _conn(request)
+    if conn is None or conn.status != AmoConnection.Status.ACTIVE:
+        raise HttpError(409, "Connect amoCRM first.")
+    return _vars_out(conn)
+
+
+@router.put("/variables")
+def save_variables(request, data: list[VariableIn]):
+    from sms.models import SmsVariable
+    from sms.services import save_variables as save
+
+    from .variables import SOURCE_RE
+
+    require_manager(request)
+    conn = _conn(request)
+    if conn is None or conn.status != AmoConnection.Status.ACTIVE:
+        raise HttpError(409, "Connect amoCRM first.")
+    try:
+        save(conn.company, SmsVariable.Integration.AMOCRM, [d.dict() for d in data], lambda s: bool(SOURCE_RE.match(s)))
+    except ValueError as e:
+        raise HttpError(422, str(e))
+    return _vars_out(conn)

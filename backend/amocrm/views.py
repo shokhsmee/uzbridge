@@ -115,6 +115,14 @@ def lead_hook(request, token):
         m = LEAD_STATUS_KEY.match(key)
         if m:
             leads.setdefault(m.group(1), {})[m.group(2)] = value
+    from realty.models import Unit
+    from realty.tasks import lead_moved
+
+    moved = [int(lead["id"]) for lead in leads.values() if lead.get("id", "").isdigit()]
+    for lead_id in (
+        Unit.objects.filter(amo_connection=conn, lead_id__in=moved).values_list("lead_id", flat=True).distinct()
+    ):
+        lead_moved.delay(conn.pk, lead_id)  # shaxmatka: the deal's units follow its stage
     for lead in leads.values():
         pipeline, status = str(lead.get("pipeline_id", "")), lead.get("status_id", "")
         if lead.get("id", "").isdigit() and str(conn.link_stages.get(pipeline, "")) == status:

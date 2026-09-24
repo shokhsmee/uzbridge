@@ -410,7 +410,7 @@ function Templates({ canManage }: { canManage: boolean }) {
             <Button busy={toAmo.isPending} disabled={!canManage || approved.length === 0} onClick={() => toAmo.mutate()}>
               {amo.data?.field_id ? t('sms.amo_update') : t('sms.amo_create')}
             </Button>
-            {amo.data?.field_id && <Pill tone="active">“uzbridge: SMS shablon” ✓</Pill>}
+            {amo.data?.field_id && <Pill tone="active">“SMS shablon” ✓</Pill>}
           </div>
         )}
         <ErrorNote error={toAmo.error} />

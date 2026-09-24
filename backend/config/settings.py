@@ -23,7 +23,7 @@ TENANCY = env("TENANCY", default="subdomain")
 # Names a company can't take: our subdomains in one mode, our top-level paths in the other.
 RESERVED_SUBDOMAINS = {
     "app", "api", "www", "admin", "static", "mail", "docs",
-    "assets", "auth", "login", "oauth", "cb", "p", "pay", "widget", "favicon.ico",
+    "assets", "auth", "login", "oauth", "cb", "p", "d", "s", "g", "pay", "widget", "favicon.ico",
 }
 
 ALLOWED_HOSTS = env("ALLOWED_HOSTS") or [BASE_DOMAIN, f".{BASE_DOMAIN}"]
@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     "developer",
     "billing",
     "audit",
+    "documents",
+    "realty",
 ]
 
 MIDDLEWARE = [
@@ -97,6 +99,10 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Documents: LibreOffice makes PDFs (and Word from site-built templates).
+SOFFICE_BIN = env.str("SOFFICE_BIN", default="soffice")
+SOFFICE_TIMEOUT = env.int("SOFFICE_TIMEOUT", default=90)
 STATICFILES_DIRS = [BASE_DIR / "static"]  # brand/ (the logo) for the admin
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -138,7 +144,14 @@ CELERY_BEAT_SCHEDULE = {
     "amocrm-refresh-tokens": {"task": "amocrm.tasks.refresh_expiring_tokens", "schedule": 3600.0},
     "billing-renew": {"task": "billing.tasks.renew_due", "schedule": 900.0},
     "amocrm-automations": {"task": "amocrm.tasks.run_due_automations", "schedule": 60.0},
+    "realty-bookings": {"task": "realty.tasks.expire_bookings", "schedule": 300.0},
+    "realty-sheets": {"task": "realty.tasks.pull_all_sheets", "schedule": 300.0},
 }
+
+# Google Sheets for Shaxmatka: one OAuth client for the platform (Google Cloud console,
+# redirect https://<domain>/oauth/google/callback, scope drive.file). Empty = off.
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", default="")
+GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET", default="")
 
 # amoCRM: each company's integration is created by the connect button and its
 # keys live on AmoConnection, so there are no platform-wide amoCRM keys.
@@ -243,6 +256,12 @@ JAZZMIN_SETTINGS = {
         "developer.WebhookEndpoint": "fas fa-satellite-dish",
         "developer.WebhookDelivery": "fas fa-paper-plane",
         "audit.CallbackLog": "fas fa-shield-alt",
+        "documents.DocTemplate": "fas fa-file-signature",
+        "documents.GeneratedDoc": "fas fa-file-alt",
+        "realty.Project": "fas fa-city",
+        "realty.Unit": "fas fa-door-open",
+        "realty.UnitEvent": "fas fa-history",
+        "realty.GoogleAccount": "fab fa-google",
     },
     "default_icon_parents": "fas fa-chevron-circle-right",
     "default_icon_children": "fas fa-circle",

@@ -5,7 +5,7 @@ import { defineConfig } from 'vite'
 // Django serves the API, provider callbacks, pay pages and OAuth. The proxy
 // keeps the browser's Host header (acme.localhost) so tenancy works in dev.
 const backend = 'http://127.0.0.1:8010'
-const proxied = ['/api', '/p/', '/cb/', '/oauth/', '/admin', '/static']
+const proxied = ['/api', '/p/', '/d/', '/cb/', '/oauth/', '/admin', '/static']
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

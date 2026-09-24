@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Shell from './components/Shell'
@@ -15,6 +16,10 @@ import SmsPage from './pages/SmsPage'
 import DevelopersPage from './pages/DevelopersPage'
 import OdooPage from './pages/OdooPage'
 import CabinetPage from './pages/CabinetPage'
+
+// The editor is heavy: only loaded when Documents is opened.
+const DocumentsPage = lazy(() => import('./pages/DocumentsPage'))
+const ShaxmatkaPage = lazy(() => import('./pages/ShaxmatkaPage'))
 
 export type CompanyInfo = { name: string; slug: string; url: string }
 export type Me = { email: string; full_name: string; role: 'owner' | 'admin' | 'member'; company: CompanyInfo }
@@ -55,6 +60,22 @@ function Tenant() {
         <Route path="providers" element={<ProvidersPage me={me.data!} />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="sms" element={<SmsPage me={me.data!} />} />
+        <Route
+          path="documents"
+          element={
+            <Suspense fallback={null}>
+              <DocumentsPage me={me.data!} />
+            </Suspense>
+          }
+        />
+        <Route
+          path="shaxmatka"
+          element={
+            <Suspense fallback={null}>
+              <ShaxmatkaPage me={me.data!} />
+            </Suspense>
+          }
+        />
         <Route path="integrations/odoo" element={<OdooPage me={me.data!} />} />
         <Route path="developers" element={<DevelopersPage me={me.data!} />} />
         <Route path="cabinet" element={<CabinetPage me={me.data!} key={location.hash} />} />

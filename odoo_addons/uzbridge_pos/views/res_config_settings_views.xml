@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_uzbridge_pos" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.uzbridge_pos</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="point_of_sale.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <block id="pos_payment_section" position="inside">
+                <setting id="uzbridge_pos_link" string="uzbridge: payment link"
+                         help="A button on the payment screen that makes a Payme / Click / Uzum link for the order, to copy or share.">
+                    <field name="pos_uzbridge_link_enabled"/>
+                </setting>
+                <setting id="uzbridge_pos_sms" string="uzbridge: send SMS"
+                         help="A button that sends the customer an approved SMS template, with {link}, {amount}, {number} and your keywords filled in.">
+                    <field name="pos_uzbridge_sms_enabled"/>
+                </setting>
+            </block>
+        </field>
+    </record>
+</odoo>

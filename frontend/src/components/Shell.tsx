@@ -16,6 +16,8 @@ const NAV: { title?: Key; items: Item[] }[] = [
       { to: '/', key: 'nav.overview', end: true },
       { to: '/payments', key: 'nav.payments' },
       { to: '/sms', key: 'nav.sms' },
+      { to: '/documents', key: 'nav.documents' },
+      { to: '/shaxmatka', key: 'nav.shaxmatka' },
     ],
   },
   {

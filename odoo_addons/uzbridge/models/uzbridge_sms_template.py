@@ -61,6 +61,23 @@ class UzbridgeSmsTemplate(models.Model):
                 _logger.warning("uzbridge template sync failed for %s: %s", company.name, e)
 
 
+    @api.model
+    def _uzbridge_fill(self, text, record=None, values=None):
+        """Fill {keywords}: the given values, then the company's own keywords read from `record`.
+
+        Unknown keywords stay as typed, so a missing one is visible, not silently blank.
+        """
+        values = dict(values or {})
+        values.setdefault('company', self.env.company.name)
+        if record:
+            variables = self.env['uzbridge.sms.variable'].search([('company_id', '=', self.env.company.id)])
+            for var in variables:
+                values.setdefault(var.key, variables._value(record, var.path))
+        for key, value in values.items():
+            text = text.replace('{%s}' % key, '' if value is None else str(value))
+        return text
+
+
 class UzbridgeSmsVariable(models.Model):
     """A company {keyword} set on the uzbridge website, read from a field path of
     the record the SMS is written from (e.g. partner_id.name, invoice_date_due)."""

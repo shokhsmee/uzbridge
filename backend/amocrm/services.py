@@ -7,7 +7,7 @@ from accounts.models import Company
 from core.tenancy import pay_url, platform_url
 from payments.models import Invoice
 
-from . import oauth
+from . import fields, oauth
 from .client import AmoClient, AmoError
 from .models import AmoConnection
 
@@ -103,11 +103,11 @@ def unsubscribe_webhook(conn: AmoConnection) -> None:
     AmoClient(conn).request("DELETE", "/api/v4/webhooks", json={"destination": hook_url(conn)})
 
 
-SMS_FIELD_NAME = "uzbridge: SMS shablon"
+SMS_FIELD_NAME = "SMS shablon"
 
 
 def sync_sms_field(conn: AmoConnection) -> AmoConnection:
-    """Make the lead's "uzbridge: SMS shablon" select list the approved templates.
+    """Make the lead's "SMS shablon" select list (in the uzbridge tab) the approved templates.
 
     amoCRM matches enums by id; new texts get new ids, removed ones disappear.
     """
@@ -128,17 +128,14 @@ def sync_sms_field(conn: AmoConnection) -> AmoConnection:
     if not enums:
         enums = [{"value": "— shablon yoʻq —", "sort": 10}]
 
-    existing = {f["name"]: f["id"] for f in client.lead_custom_fields(all_types=True)}
-    field_id = conn.sms_field_id if conn.sms_field_id in existing.values() else existing.get(SMS_FIELD_NAME)
+    gid = fields.group_id(conn, client)
+    found = fields.find(fields.lead_fields(client), conn.sms_field_id, SMS_FIELD_NAME, gid)
+    field_id = found["id"] if found else None
+    body = {"name": SMS_FIELD_NAME, "enums": enums, **({"group_id": gid} if gid else {})}
     if field_id:
-        data = client.request("PATCH", "/api/v4/leads/custom_fields", json=[{"id": field_id, "enums": enums}]) or {}
+        data = client.request("PATCH", "/api/v4/leads/custom_fields", json=[{"id": field_id, **body}]) or {}
     else:
-        data = (
-            client.request(
-                "POST", "/api/v4/leads/custom_fields", json=[{"name": SMS_FIELD_NAME, "type": "select", "enums": enums}]
-            )
-            or {}
-        )
+        data = client.request("POST", "/api/v4/leads/custom_fields", json=[{"type": "select", **body}]) or {}
     field = (data.get("_embedded", {}).get("custom_fields") or [{}])[0]
     conn.sms_field_id = field.get("id", field_id)
     conn.save(update_fields=["sms_field_id"])
@@ -150,22 +147,22 @@ def sync_sms_field(conn: AmoConnection) -> AmoConnection:
     return conn
 
 
-LINK_FIELD_NAME = "uzbridge: toʻlov havolasi"
-STATUS_FIELD_NAME = "uzbridge: toʻlov holati"
+LINK_FIELD_NAME = "Toʻlov havolasi"
+STATUS_FIELD_NAME = "Toʻlov holati"
 
 
 def create_lead_fields(conn: AmoConnection) -> AmoConnection:
-    """Create (or find) the two lead fields we write the link and status into."""
-    client = AmoClient(conn)
-    existing = {f["name"]: f["id"] for f in client.lead_custom_fields()}
-    wanted = [(LINK_FIELD_NAME, "url"), (STATUS_FIELD_NAME, "text")]
-    missing = [{"name": n, "type": t} for n, t in wanted if n not in existing]
-    if missing:
-        data = client.request("POST", "/api/v4/leads/custom_fields", json=missing) or {}
-        for f in data.get("_embedded", {}).get("custom_fields", []):
-            existing[f["name"]] = f["id"]
-    conn.link_field_id = existing.get(LINK_FIELD_NAME)
-    conn.status_field_id = existing.get(STATUS_FIELD_NAME)
+    """Create (or find) the two lead fields we write the link and status into (uzbridge tab)."""
+    ids = fields.ensure(
+        conn,
+        AmoClient(conn),
+        [
+            ("link", LINK_FIELD_NAME, "url", conn.link_field_id),
+            ("status", STATUS_FIELD_NAME, "text", conn.status_field_id),
+        ],
+    )
+    conn.link_field_id = ids.get("link")
+    conn.status_field_id = ids.get("status")
     conn.save(update_fields=["link_field_id", "status_field_id"])
     return conn
 

@@ -30,7 +30,10 @@ SOUM = 100  # tiyin
 PRICES = {
     "payment": {"first": 500_000 * SOUM, "extra": 200_000 * SOUM},
     "sms": {"first": 300_000 * SOUM, "extra": 100_000 * SOUM},
+    "docs": {"first": 200_000 * SOUM, "extra": 100_000 * SOUM},
 }
+KINDS = ("payment", "sms", "docs")
+PAID_FIELD = {"payment": "paid_payment_units", "sms": "paid_sms_units", "docs": "paid_docs_units"}
 
 
 def prices_for(company: Company | None = None) -> dict[str, dict[str, int]]:
@@ -59,17 +62,21 @@ def price(kind: str, units: int, company: Company | None = None, prices: dict | 
 
 
 def active_units(company: Company) -> dict[str, int]:
+    from amocrm.models import AmoConnection
     from payments.models import ProviderAccount
     from sms.models import SmsAccount
 
     pay = sum(1 for a in ProviderAccount.objects.filter(company=company, is_enabled=True) if a.is_configured)
     sms = sum(1 for a in SmsAccount.objects.filter(company=company, is_enabled=True) if a.is_configured)
-    return {"payment": pay, "sms": sms}
+    docs = AmoConnection.objects.filter(
+        company=company, docs_enabled=True, status=AmoConnection.Status.ACTIVE
+    ).count()
+    return {"payment": pay, "sms": sms, "docs": docs}
 
 
 def monthly_fee(units: dict[str, int], company: Company | None = None) -> int:
     p = prices_for(company)
-    return price("payment", units["payment"], prices=p) + price("sms", units["sms"], prices=p)
+    return sum(price(k, units.get(k, 0), prices=p) for k in KINDS)
 
 
 def is_billable(company: Company) -> bool:
@@ -107,9 +114,9 @@ def upgrade_cost(company: Company, new_units: dict[str, int]) -> int:
     if company.period_end is None or company.period_end <= timezone.now():
         return monthly_fee(new_units, company)  # opens a new period
     p = prices_for(company)
-    extra = (
-        price("payment", new_units["payment"], prices=p) - price("payment", company.paid_payment_units, prices=p)
-    ) + (price("sms", new_units["sms"], prices=p) - price("sms", company.paid_sms_units, prices=p))
+    extra = sum(
+        price(k, new_units.get(k, 0), prices=p) - price(k, getattr(company, PAID_FIELD[k]), prices=p) for k in KINDS
+    )
     if extra <= 0:
         return 0
     left = (company.period_end - timezone.now()).total_seconds() / PERIOD.total_seconds()
@@ -133,28 +140,22 @@ def ensure_paid(company: Company, new_units: dict[str, int]) -> int:
         company.period_start, company.period_end = now, now + PERIOD
     elif cost:
         _entry(company, LedgerEntry.Kind.PRORATA, -cost, _describe(new_units, "qolgan kunlar"))
-    company.paid_payment_units = max(company.paid_payment_units if not opening else 0, new_units["payment"])
-    company.paid_sms_units = max(company.paid_sms_units if not opening else 0, new_units["sms"])
+    for k in KINDS:
+        field = PAID_FIELD[k]
+        setattr(company, field, max(getattr(company, field) if not opening else 0, new_units.get(k, 0)))
     company.overdue_since = company.paused_at = None
-    company.save(
-        update_fields=[
-            "period_start",
-            "period_end",
-            "paid_payment_units",
-            "paid_sms_units",
-            "overdue_since",
-            "paused_at",
-        ]
-    )
+    company.save(update_fields=["period_start", "period_end", *PAID_FIELD.values(), "overdue_since", "paused_at"])
     return cost
 
 
 def _describe(units: dict[str, int], span: str) -> str:
     parts = []
-    if units["payment"]:
+    if units.get("payment"):
         parts.append(f"{units['payment']} ta toʻlov tizimi")
-    if units["sms"]:
+    if units.get("sms"):
         parts.append(f"{units['sms']} ta SMS")
+    if units.get("docs"):
+        parts.append(f"hujjatlar ({units['docs']} ta amoCRM)")
     return f"Tarif: {', '.join(parts) or 'yoʻq'} · {span}"
 
 
@@ -170,7 +171,7 @@ def renew(company: Company) -> str:
     if fee == 0:
         # Nothing paid is switched on: the period simply lapses.
         company.period_start = company.period_end = None
-        company.paid_payment_units = company.paid_sms_units = 0
+        company.paid_payment_units = company.paid_sms_units = company.paid_docs_units = 0
         company.overdue_since = company.paused_at = None
         company.save()
         return "lapsed"
@@ -179,7 +180,8 @@ def renew(company: Company) -> str:
         # Anniversary billing: the new period starts where the old one ended.
         start = company.period_end if not company.paused_at else now
         company.period_start, company.period_end = start, start + PERIOD
-        company.paid_payment_units, company.paid_sms_units = units["payment"], units["sms"]
+        for k in KINDS:
+            setattr(company, PAID_FIELD[k], units[k])
         company.overdue_since = company.paused_at = None
         company.save()
         return "renewed"
@@ -243,7 +245,7 @@ def summary(company: Company) -> dict:
         "period_end": company.period_end,
         "grace_until": company.overdue_since + GRACE if company.overdue_since else None,
         "units": units,
-        "paid_units": {"payment": company.paid_payment_units, "sms": company.paid_sms_units},
+        "paid_units": {k: getattr(company, PAID_FIELD[k]) for k in KINDS},
         "monthly_fee_tiyin": 0 if not is_billable(company) else monthly_fee(units, company),
         "lines": [
             {
@@ -253,7 +255,8 @@ def summary(company: Company) -> dict:
                 "extra_tiyin": prices[k]["extra"],
                 "total_tiyin": price(k, units[k], prices=prices),
             }
-            for k in ("payment", "sms")
+            for k in KINDS
+            if k != "docs" or units[k] or getattr(company, PAID_FIELD[k])
         ],
         "prices": prices,
     }

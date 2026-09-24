@@ -32,7 +32,8 @@ export type Billing = {
   grace_until: string | null
   units: { payment: number; sms: number }
   monthly_fee_tiyin: number
-  lines: { kind: 'payment' | 'sms'; units: number; first_tiyin: number; extra_tiyin: number; total_tiyin: number }[]
+  lines: { kind: 'payment' | 'sms' | 'docs'; units: number; first_tiyin: number; extra_tiyin: number; total_tiyin: number }[]
+  prices: Record<'payment' | 'sms' | 'docs', { first: number; extra: number }>
 }
 type Entry = { id: number; kind: string; amount_tiyin: number; balance_after: number; description: string; created_at: string }
 
@@ -245,10 +246,12 @@ function TariffTab() {
   if (!b) return null
   return (
     <div className="grid gap-5">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* The live price list (edited by uzbridge; a special price for this company shows here too). */}
         {([
-          { k: 'payment', first: 500_000, extra: 200_000 },
-          { k: 'sms', first: 300_000, extra: 100_000 },
+          { k: 'payment', first: b.prices.payment.first / 100, extra: b.prices.payment.extra / 100 },
+          { k: 'sms', first: b.prices.sms.first / 100, extra: b.prices.sms.extra / 100 },
+          { k: 'docs', first: (b.prices.docs?.first ?? 0) / 100, extra: (b.prices.docs?.extra ?? 0) / 100 },
           { k: 'free', first: 0, extra: 0 },
         ] as const).map((p) => (
           <Card key={p.k} className="p-5 grid gap-2">

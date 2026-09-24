@@ -1,6 +1,6 @@
 {
     'name': "uzbridge: Payme, Click, Uzum & Eskiz/Playmobile SMS",
-    'version': '19.0.1.1.0',
+    'version': '19.0.1.2.0',
     'category': 'Accounting/Payment Providers',
     'summary': "Uzbek payments (Payme, Click, Uzum Bank) with fiscal receipts, and SMS via Eskiz or Playmobile.",
     'description': """

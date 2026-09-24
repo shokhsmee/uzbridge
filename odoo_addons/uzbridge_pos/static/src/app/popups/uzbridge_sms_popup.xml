@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="uzbridge_pos.UzbridgeSmsPopup">
+        <Dialog title.translate="Send SMS" footer="false" bodyClass="'d-flex flex-column gap-3 p-4'">
+            <div>
+                <label class="form-label small text-muted" for="uzb_sms_phone">Phone</label>
+                <input id="uzb_sms_phone" class="form-control form-control-lg" type="tel" placeholder="+998 90 123 45 67"
+                       t-model="state.phone" t-on-input="() => (state.error = '')"/>
+            </div>
+            <div>
+                <label class="form-label small text-muted" for="uzb_sms_tpl">SMS template</label>
+                <select id="uzb_sms_tpl" class="form-select form-select-lg" t-on-change="(ev) => this.select(ev.target.value)">
+                    <t t-foreach="state.templates" t-as="tpl" t-key="tpl.id">
+                        <option t-att-value="tpl.id" t-att-selected="tpl.id === state.templateId">
+                            <t t-esc="tpl.name"/><t t-if="tpl.has_link"> · link</t>
+                        </option>
+                    </t>
+                </select>
+                <div t-if="!state.templates.length and !state.error" class="small text-muted mt-1">No approved templates yet (uzbridge → SMS).</div>
+            </div>
+            <div t-if="state.preview" class="rounded border p-3 bg-light small" style="white-space: pre-wrap"><t t-esc="state.preview"/></div>
+            <div t-if="state.error" class="alert alert-danger py-2 mb-0 small"><t t-esc="state.error"/></div>
+            <div t-if="state.sent" class="alert alert-success py-2 mb-0 small">SMS sent</div>
+            <button class="btn btn-primary btn-lg" t-att-disabled="state.sending or state.sent" t-on-click="send">
+                <t t-if="state.sending">Sending…</t><t t-else="">Send SMS</t>
+            </button>
+        </Dialog>
+    </t>
+</templates>
