@@ -18,11 +18,18 @@ BASE_DOMAIN = env("BASE_DOMAIN", default="localhost")
 PUBLIC_SCHEME = env("PUBLIC_SCHEME", default="http")
 # Port the browser uses, only needed locally where the SPA runs on :5173.
 PUBLIC_PORT = env("PUBLIC_PORT", default="")
-RESERVED_SUBDOMAINS = {"app", "api", "www", "admin", "static", "mail", "docs"}
+# "subdomain" (acme.<domain>) or "path" (<domain>/acme/), see core/tenancy.py.
+TENANCY = env("TENANCY", default="subdomain")
+# Names a company can't take: our subdomains in one mode, our top-level paths in the other.
+RESERVED_SUBDOMAINS = {
+    "app", "api", "www", "admin", "static", "mail", "docs",
+    "assets", "auth", "login", "oauth", "cb", "p", "pay", "widget", "favicon.ico",
+}
 
 ALLOWED_HOSTS = env("ALLOWED_HOSTS") or [BASE_DOMAIN, f".{BASE_DOMAIN}"]
 
 INSTALLED_APPS = [
+    "jazzmin",  # admin theme; must come before django.contrib.admin
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -35,10 +42,15 @@ INSTALLED_APPS = [
     "integrations",
     "payments",
     "amocrm",
+    "sms",
+    "developer",
+    "billing",
+    "audit",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "audit.middleware.CallbackGuard",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -85,6 +97,7 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]  # brand/ (the logo) for the admin
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Sessions and CSRF stay per host, so one company's cookie never reaches another subdomain.
@@ -123,18 +136,29 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
     "amocrm-refresh-tokens": {"task": "amocrm.tasks.refresh_expiring_tokens", "schedule": 3600.0},
+    "billing-renew": {"task": "billing.tasks.renew_due", "schedule": 900.0},
+    "amocrm-automations": {"task": "amocrm.tasks.run_due_automations", "schedule": 60.0},
 }
 
-# amoCRM external integration (one for the whole platform, created in our own amoCRM account).
-AMOCRM_CLIENT_ID = env("AMOCRM_CLIENT_ID", default="")
-AMOCRM_CLIENT_SECRET = env("AMOCRM_CLIENT_SECRET", default="")
-AMOCRM_REDIRECT_URI = env("AMOCRM_REDIRECT_URI", default="")
+# amoCRM: each company's integration is created by the connect button and its
+# keys live on AmoConnection, so there are no platform-wide amoCRM keys.
 AMOCRM_RATE_PER_SECOND = 7
+
+# The platform's own company (its Payme/Click take balance top-ups).
+PLATFORM_COMPANY_SLUG = env("PLATFORM_COMPANY_SLUG", default="uzbridge")
 
 # Payment providers.
 PAYME_CHECKOUT_URL = "https://checkout.paycom.uz"
 PAYME_TEST_CHECKOUT_URL = "https://test.paycom.uz"
 PAYME_ALLOWED_IPS = env.list("PAYME_ALLOWED_IPS", default=[])  # empty = don't check
+# Callback allowlists per source (empty = open). Accounts in test mode are never blocked.
+CALLBACK_ALLOWED_IPS = {
+    "payme": PAYME_ALLOWED_IPS,
+    "click": env.list("CLICK_ALLOWED_IPS", default=[]),
+    "uzum": env.list("UZUM_ALLOWED_IPS", default=[]),
+    "eskiz": env.list("ESKIZ_ALLOWED_IPS", default=[]),
+    "playmobile": env.list("PLAYMOBILE_ALLOWED_IPS", default=[]),
+}
 CLICK_PAY_URL = "https://my.click.uz/services/pay"
 CLICK_API_URL = "https://api.click.uz/v2/merchant"
 UZUM_CHECKOUT_URL = env("UZUM_CHECKOUT_URL", default="https://chk-api.uzumcheckout.uz")
@@ -145,4 +169,121 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": "INFO"},
+}
+
+# Shared cache (rate limits) in Redis; tests and dev without Redis fall back to memory.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache" if not CELERY_TASK_ALWAYS_EAGER else
+        "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": CELERY_BROKER_URL,
+    }
+}
+
+
+# ------------------------------------------------ admin (django-jazzmin)
+JAZZMIN_SETTINGS = {
+    "site_title": "uzbridge admin",
+    "site_header": "uzbridge",
+    "site_brand": "uzbridge",
+    "welcome_sign": "uzbridge — platform admin",
+    "site_logo": "brand/n-mark.svg",
+    "login_logo": "brand/n-mark.svg",
+    "site_logo_classes": "",
+    "site_icon": "brand/n-mark-128.png",
+    "copyright": "uzbridge",
+    "search_model": ["accounts.Company", "accounts.User", "payments.Invoice"],
+    "user_avatar": None,
+    "topmenu_links": [
+        {"name": "Dashboard", "url": "/", "new_window": True},
+        {"model": "accounts.Company"},
+        {"model": "payments.Invoice"},
+        {"model": "billing.LedgerEntry"},
+        {"model": "billing.TariffPrice"},
+    ],
+    "show_sidebar": True,
+    "navigation_expanded": True,
+    "hide_apps": ["auth"],
+    "order_with_respect_to": [
+        "accounts",
+        "accounts.Company",
+        "accounts.User",
+        "accounts.Membership",
+        "billing",
+        "payments",
+        "payments.Invoice",
+        "payments.ProviderAccount",
+        "sms",
+        "amocrm",
+        "developer",
+        "audit",
+    ],
+    "icons": {
+        "accounts.Company": "fas fa-building",
+        "accounts.User": "fas fa-user",
+        "accounts.Membership": "fas fa-user-tag",
+        "accounts.UserSession": "fas fa-laptop",
+        "accounts.HandoffToken": "fas fa-key",
+        "billing.LedgerEntry": "fas fa-wallet",
+        "billing.TariffPrice": "fas fa-tags",
+        "billing.CompanyTariff": "fas fa-handshake",
+        "payments.Invoice": "fas fa-file-invoice-dollar",
+        "payments.ProviderAccount": "fas fa-cash-register",
+        "payments.ProviderTransaction": "fas fa-exchange-alt",
+        "payments.FiscalDefaults": "fas fa-receipt",
+        "sms.SmsAccount": "fas fa-sim-card",
+        "sms.SmsTemplate": "fas fa-comment-dots",
+        "sms.SmsVariable": "fas fa-code",
+        "sms.SmsSettings": "fas fa-sliders-h",
+        "sms.SmsMessage": "fas fa-sms",
+        "amocrm.AmoConnection": "fas fa-plug",
+        "amocrm.AmoAutomationJob": "fas fa-robot",
+        "amocrm.AmoInstall": "fas fa-hourglass-half",
+        "developer.ApiKey": "fas fa-key",
+        "developer.WebhookEndpoint": "fas fa-satellite-dish",
+        "developer.WebhookDelivery": "fas fa-paper-plane",
+        "audit.CallbackLog": "fas fa-shield-alt",
+    },
+    "default_icon_parents": "fas fa-chevron-circle-right",
+    "default_icon_children": "fas fa-circle",
+    "related_modal_active": True,
+    "changeform_format": "horizontal_tabs",
+    "changeform_format_overrides": {"auth.user": "collapsible", "accounts.user": "collapsible"},
+    "use_google_fonts_cdn": True,
+    "show_ui_builder": False,
+    "language_chooser": False,
+}
+# Same look as the Ziedas Dental admin: white top bar, dark sidebar, flatly,
+# light/dark following the operator's system.
+JAZZMIN_UI_TWEAKS = {
+    "navbar_small_text": False,
+    "footer_small_text": False,
+    "body_small_text": False,
+    "brand_small_text": False,
+    "brand_colour": False,
+    "accent": "accent-info",
+    "navbar": "navbar-white navbar-light",
+    "no_navbar_border": False,
+    "navbar_fixed": True,
+    "layout_boxed": False,
+    "footer_fixed": False,
+    "sidebar_fixed": True,
+    "sidebar": "sidebar-dark-primary",
+    "sidebar_nav_small_text": False,
+    "sidebar_disable_expand": False,
+    "sidebar_nav_child_indent": True,
+    "sidebar_nav_compact_style": False,
+    "sidebar_nav_legacy_style": False,
+    "sidebar_nav_flat_style": True,
+    "theme": "flatly",
+    "default_theme_mode": "auto",
+    "actions_sticky_top": True,
+    "button_classes": {
+        "primary": "btn-primary",
+        "secondary": "btn-secondary",
+        "info": "btn-info",
+        "warning": "btn-warning",
+        "danger": "btn-danger",
+        "success": "btn-success",
+    },
 }

@@ -129,3 +129,44 @@ def test_pay_url(click_account, invoice):
     url = click.pay_url(click_account, invoice, return_url="https://acme.uzbridge.test/p/x/?r=1")
     assert url.startswith("https://my.click.uz/services/pay?service_id=22222&merchant_id=11111&amount=150000.00")
     assert f"transaction_param={invoice.number}" in url
+
+
+@pytest.mark.django_db
+@respx.mock
+def test_refund_from_dashboard(client, owner, click_account, invoice, django_capture_on_commit_callbacks):
+    respx.post("https://api.click.uz/v2/merchant/payment/ofd_data/submit_items").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    r = post(client, click_account, signed(click_account, invoice, 0))
+    post(client, click_account, signed(click_account, invoice, 1, prepare_id=r["merchant_prepare_id"]))
+    reversal = respx.delete("https://api.click.uz/v2/merchant/payment/reversal/22222/555001").mock(
+        return_value=httpx.Response(200, json={"error_code": 0, "error_note": "Success", "payment_id": 555001})
+    )
+    client.force_login(owner)
+    csrf = client.get("/api/auth/csrf", HTTP_HOST="acme.uzbridge.test").cookies["csrftoken"].value
+    resp = client.post(
+        f"/api/payments/invoices/{invoice.public_id}/refund", HTTP_HOST="acme.uzbridge.test", HTTP_X_CSRFTOKEN=csrf
+    )
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["status"] == "refunded" and reversal.called
+    assert ProviderTransaction.objects.get().state == ProviderTransaction.CANCELLED_AFTER
+
+
+@pytest.mark.django_db
+@respx.mock
+def test_refund_error_is_reported(owner, click_account, invoice, client):
+    from payments.services import RefundError, refund_invoice
+
+    r = post(client, click_account, signed(click_account, invoice, 0))
+    respx.post("https://api.click.uz/v2/merchant/payment/ofd_data/submit_items").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    post(client, click_account, signed(click_account, invoice, 1, prepare_id=r["merchant_prepare_id"]))
+    respx.delete(url__startswith="https://api.click.uz/v2/merchant/payment/reversal/").mock(
+        return_value=httpx.Response(400, json={"error_code": -5017, "error_note": "Payment is older than this month"})
+    )
+    invoice.refresh_from_db()
+    with pytest.raises(RefundError, match="older"):
+        refund_invoice(invoice)
+    invoice.refresh_from_db()
+    assert invoice.status == Invoice.Status.PAID

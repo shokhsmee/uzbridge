@@ -43,6 +43,14 @@ def _company_out(c: Company) -> dict:
     return {"name": c.name, "slug": c.slug, "url": company_url(c)}
 
 
+@router.get("/config", auth=None)
+def config(request):
+    """What the SPA needs before it can route: where companies live."""
+    from django.conf import settings
+
+    return {"tenancy": settings.TENANCY, "base_domain": settings.BASE_DOMAIN}
+
+
 @router.get("/csrf", auth=None)
 def csrf(request):
     """Sets the csrftoken cookie for the SPA; returns the tenant context."""
@@ -95,6 +103,7 @@ def login_view(request, data: LoginIn):
     if services.membership_for(user, request.company) is None:
         raise HttpError(401, "Wrong email or password.")
     login(request, user)
+    services.grant_company(request, request.company)
     return {"ok": True}
 
 
@@ -106,6 +115,7 @@ def handoff(request, token: str):
     if user is None:
         raise HttpError(401, "This sign-in link has expired. Sign in again.")
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    services.grant_company(request, request.company)
     return {"ok": True}
 
 
@@ -125,3 +135,52 @@ def me(request):
         "role": request.membership.role,
         "company": _company_out(request.company),
     }
+
+
+class SecurityIn(Schema):
+    single_session: bool
+
+
+@router.get("/sessions", auth=member_auth)
+def sessions(request):
+    from .models import UserSession
+
+    qs = UserSession.objects.filter(company=request.company).select_related("user")
+    if not request.membership.can_manage:
+        qs = qs.filter(user=request.user)
+    return {
+        "single_session": request.company.single_session,
+        "sessions": [
+            {
+                "id": s.pk,
+                "user": s.user.email,
+                "ip": s.ip,
+                "user_agent": s.user_agent,
+                "created_at": s.created_at,
+                "last_seen": s.last_seen,
+                "current": s.session_key == request.session.session_key,
+            }
+            for s in qs
+        ],
+    }
+
+
+@router.post("/sessions/{session_id}/end", auth=member_auth)
+def end_session(request, session_id: int):
+    from .models import UserSession
+
+    s = UserSession.objects.filter(company=request.company, pk=session_id).first()
+    if s is None or (s.user_id != request.user.pk and not request.membership.can_manage):
+        raise HttpError(404, "Session not found.")
+    services.end_session(s.session_key)
+    return {"ok": True}
+
+
+@router.put("/security", auth=member_auth)
+def save_security(request, data: SecurityIn):
+    from core.api import require_manager
+
+    require_manager(request)
+    request.company.single_session = data.single_session
+    request.company.save(update_fields=["single_session"])
+    return {"single_session": request.company.single_session}

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="payment_provider_form" model="ir.ui.view">
+        <field name="name">uzbridge provider form</field>
+        <field name="model">payment.provider</field>
+        <field name="inherit_id" ref="payment.payment_provider_form"/>
+        <field name="arch" type="xml">
+            <group name="provider_credentials" position="inside">
+                <group invisible="code != 'uzbridge'" name="uzbridge_credentials">
+                    <div class="text-muted" colspan="2">
+                        Payme, Click and Uzum keys live in your uzbridge account; this database only needs
+                        the uzbridge API key in Settings → uzbridge.
+                    </div>
+                </group>
+            </group>
+        </field>
+    </record>
+</odoo>

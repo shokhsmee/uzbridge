@@ -5,10 +5,13 @@ import { Button, ErrorNote, Field, Input, LangSwitch, Logo } from '../components
 
 type Found = { name: string; slug: string; url: string; enter: string }
 
-const suffix = () => {
-  const host = window.location.host.split('.').slice(1).join('.')
-  return `.${host || window.location.host}`
+// The platform runs on the bare domain or on app.<domain>.
+const baseHost = () => {
+  const host = window.location.host
+  return host.startsWith('app.') ? host.slice(4) : host
 }
+
+const shortUrl = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/$/, '')
 
 function slugify(s: string) {
   return s
@@ -19,7 +22,7 @@ function slugify(s: string) {
     .slice(0, 32)
 }
 
-export default function PlatformHome() {
+export default function PlatformHome({ tenancy }: { tenancy: string }) {
   const { t } = useT()
   const [mode, setMode] = useState<'signup' | 'login'>('signup')
   return (
@@ -46,7 +49,7 @@ export default function PlatformHome() {
           </span>
         </div>
         <div className="my-auto w-full max-w-sm mx-auto py-10">
-          {mode === 'signup' ? <Signup /> : <PlatformLogin />}
+          {mode === 'signup' ? <Signup pathMode={tenancy === 'path'} /> : <PlatformLogin />}
           <p className="mt-6 text-sm text-muted">
             {mode === 'signup' ? t('auth.have_account') : t('auth.no_account')}{' '}
             <button className="text-accent font-medium" onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}>
@@ -59,7 +62,7 @@ export default function PlatformHome() {
   )
 }
 
-function Signup() {
+function Signup({ pathMode }: { pathMode: boolean }) {
   const { t } = useT()
   const [form, setForm] = useState({ company_name: '', slug: '', full_name: '', email: '', password: '' })
   const [slugTouched, setSlugTouched] = useState(false)
@@ -91,12 +94,18 @@ function Signup() {
       const r = await post<{ redirect: string; slug: string }>('/auth/signup', form)
       setPreparing(true)
       // A new subdomain needs its TLS certificate before the browser can open it.
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 40; i++) {
         const { ready } = await get<{ ready: boolean }>(`/auth/host-ready?slug=${encodeURIComponent(r.slug)}`)
-        if (ready) break
+        if (ready) {
+          window.location.href = r.redirect
+          return
+        }
         await new Promise((res) => setTimeout(res, 3000))
       }
-      window.location.href = r.redirect
+      // Don't send people to an address that won't open; the company exists, they can log in later.
+      setPreparing(false)
+      setBusy(false)
+      setError(new Error(t('auth.not_ready')))
     } catch (err) {
       setError(err)
       setBusy(false)
@@ -115,6 +124,7 @@ function Signup() {
         hint={slugState?.available ? `✓ ${t('auth.slug_free')}` : undefined}
       >
         <div className="flex items-center rounded-lg border border-line bg-surface focus-within:border-accent">
+          {pathMode && <span className="pl-3 text-sm text-muted font-mono whitespace-nowrap">{baseHost()}/</span>}
           <input
             id="slug"
             required
@@ -123,10 +133,10 @@ function Signup() {
               setSlugTouched(true)
               setForm((f) => ({ ...f, slug: slugify(e.target.value) }))
             }}
-            className="h-10 min-w-0 flex-1 bg-transparent px-3 text-sm font-mono focus:outline-none"
+            className={`h-10 min-w-0 flex-1 bg-transparent text-sm font-mono focus:outline-none ${pathMode ? 'pr-3' : 'px-3'}`}
             placeholder="nur-savdo"
           />
-          <span className="pr-3 text-sm text-muted font-mono">{suffix()}</span>
+          {!pathMode && <span className="pr-3 text-sm text-muted font-mono">.{baseHost()}</span>}
         </div>
       </Field>
       <Field label={t('auth.name')}>
@@ -177,7 +187,7 @@ function PlatformLogin() {
         {found.map((c) => (
           <a key={c.slug} href={c.enter} className="rounded-xl border border-line bg-surface px-4 py-3 hover:border-accent">
             <p className="font-medium">{c.name}</p>
-            <p className="text-xs text-muted font-mono">{new URL(c.url).host}</p>
+            <p className="text-xs text-muted font-mono">{shortUrl(c.url)}</p>
           </a>
         ))}
       </div>

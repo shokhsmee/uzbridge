@@ -7,6 +7,11 @@ KEY=${KEY:-$HOME/.ssh/uzbridge_deploy}
 SSH=(ssh -i "$KEY" -o IdentitiesOnly=yes "$HOST")
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
+# The dashboard offers the amoCRM widget archive for download.
+(cd "$ROOT/widget" && uv run --quiet --with pillow python build.py "${PUBLIC_API:-https://uzbridge.shokhsmee.uz}" >/dev/null)
+cp "$ROOT/widget/dist/uzbridge-widget.zip" "$ROOT/frontend/public/uzbridge-widget.zip"
+# ...and the Odoo addon (Community + Enterprise).
+(cd "$ROOT/odoo_addons" && rm -f "$ROOT/frontend/public/uzbridge-odoo.zip" && zip -qr "$ROOT/frontend/public/uzbridge-odoo.zip" uzbridge -x '*/__pycache__/*' '*.pyc')
 (cd "$ROOT/frontend" && npm run build >/dev/null)
 rsync -az --delete -e "ssh -i $KEY -o IdentitiesOnly=yes" \
     --exclude .venv --exclude .env --exclude __pycache__ --exclude staticfiles --exclude '.pytest_cache' --exclude '.ruff_cache' \

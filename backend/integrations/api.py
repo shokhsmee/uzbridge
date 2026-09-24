@@ -11,7 +11,7 @@ router = Router(tags=["integrations"], auth=member_auth)
 CATALOG = [
     {"key": "amocrm", "name": "amoCRM", "kind": "crm", "available": True},
     {"key": "bitrix24", "name": "Bitrix24", "kind": "crm", "available": False},
-    {"key": "odoo", "name": "Odoo", "kind": "erp", "available": False},
+    {"key": "odoo", "name": "Odoo", "kind": "erp", "available": True},
     {"key": "uysot", "name": "UySot", "kind": "crm", "available": False},
     {"key": "telegram", "name": "Telegram", "kind": "messenger", "available": False},
 ]
@@ -20,7 +20,10 @@ CATALOG = [
 @router.get("")
 def catalog(request):
     amo = AmoConnection.objects.filter(company=request.company).first()
-    status = {"amocrm": (amo.status if amo else "not_connected")}
+    from developer.models import WebhookEndpoint
+
+    odoo = WebhookEndpoint.objects.filter(company=request.company, label="odoo", is_enabled=True).exists()
+    status = {"amocrm": (amo.status if amo else "not_connected"), "odoo": "active" if odoo else "not_connected"}
     return [{**item, "status": status.get(item["key"], "coming_soon")} for item in CATALOG]
 
 

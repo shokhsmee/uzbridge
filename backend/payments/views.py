@@ -9,11 +9,11 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
-from core.tenancy import company_url
+from core.tenancy import path_mode, pay_url
 
 from .models import Invoice, Provider, ProviderAccount
 from .providers import click, payme, uzum
-from .services import enabled_accounts
+from .services import accounts_for
 from .tasks import verify_uzum
 
 log = logging.getLogger(__name__)
@@ -36,7 +36,8 @@ def payme_callback(request, public_id):
     if request.method != "POST":
         return JsonResponse(payme.rpc_error(-32300))
     account = _account(public_id, Provider.PAYME)
-    if settings.PAYME_ALLOWED_IPS and _client_ip(request) not in settings.PAYME_ALLOWED_IPS:
+    # The allowlist is Payme's production range; the sandbox may call from elsewhere.
+    if settings.PAYME_ALLOWED_IPS and not account.test_mode and _client_ip(request) not in settings.PAYME_ALLOWED_IPS:
         return JsonResponse(payme.rpc_error(-32504))
     try:
         body = json.loads(request.body)
@@ -70,17 +71,19 @@ def uzum_callback(request, public_id):
 
 
 def _invoice_for_page(request, public_id) -> Invoice:
+    qs = Invoice.objects.select_related("company")
+    if path_mode():
+        # One host for everyone: the unguessable uuid is the only key.
+        return get_object_or_404(qs, public_id=public_id)
     if request.company is None:
         raise Http404
-    return get_object_or_404(Invoice.objects.select_related("company"), public_id=public_id, company=request.company)
+    return get_object_or_404(qs, public_id=public_id, company=request.company)
 
 
 @require_GET
 def pay_page(request, public_id):
     invoice = _invoice_for_page(request, public_id)
-    providers = (
-        [a.provider for a in enabled_accounts(invoice.company)] if invoice.status == Invoice.Status.PENDING else []
-    )
+    providers = [a.provider for a in accounts_for(invoice)] if invoice.status == Invoice.Status.PENDING else []
     lang = request.GET.get("lang", "uz") if request.GET.get("lang") in ("uz", "ru") else "uz"
     return render(
         request,
@@ -99,20 +102,22 @@ def pay_page(request, public_id):
 @require_GET
 def pay_go(request, public_id, provider):
     invoice = _invoice_for_page(request, public_id)
-    back = company_url(invoice.company, f"/p/{invoice.public_id}/")
+    back = pay_url(invoice)
     if invoice.status != Invoice.Status.PENDING:
-        return HttpResponseRedirect(back)
-    account = next((a for a in enabled_accounts(invoice.company) if a.provider == provider), None)
+        return HttpResponseRedirect(invoice.return_url or back)
+    account = next((a for a in accounts_for(invoice) if a.provider == provider), None)
     if account is None:
         raise Http404
     lang = request.GET.get("lang", "uz")
+    # Back to the shop (e.g. Odoo re-checks the status there), else to our page.
+    done = invoice.return_url or back + "?r=1"
     if provider == Provider.PAYME:
-        url = payme.checkout_url(account, invoice, return_url=back + "?r=1", lang=lang)
+        url = payme.checkout_url(account, invoice, return_url=done, lang=lang)
     elif provider == Provider.CLICK:
-        url = click.pay_url(account, invoice, return_url=back + "?r=1")
+        url = click.pay_url(account, invoice, return_url=done)
     else:
         try:
-            url = uzum.redirect_url(account, invoice, success_url=back + "?r=1", failure_url=back + "?r=0", lang=lang)
+            url = uzum.redirect_url(account, invoice, success_url=done, failure_url=back + "?r=0", lang=lang)
         except Exception:
             log.exception("uzum register failed for invoice %s", invoice.pk)
             return HttpResponseRedirect(back + "?r=err")
@@ -132,6 +137,7 @@ PAGE_TEXT = {
         "error": "Toʻlov sahifasini ochib boʻlmadi. Boshqa usulni tanlang yoki keyinroq urinib koʻring.",
         "invoice": "Hisob",
         "sum": "soʻm",
+        "back": "Doʻkonga qaytish",
     },
     "ru": {
         "title": "Оплата",
@@ -145,5 +151,6 @@ PAGE_TEXT = {
         "error": "Не удалось открыть страницу оплаты. Выберите другой способ или попробуйте позже.",
         "invoice": "Счёт",
         "sum": "сум",
+        "back": "Вернуться в магазин",
     },
 }

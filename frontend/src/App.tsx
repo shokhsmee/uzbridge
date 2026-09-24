@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Shell from './components/Shell'
 import { get } from './lib/api'
 import { useT } from './lib/i18n'
@@ -11,11 +11,15 @@ import OverviewPage from './pages/OverviewPage'
 import PaymentsPage from './pages/PaymentsPage'
 import PlatformHome from './pages/PlatformHome'
 import ProvidersPage from './pages/ProvidersPage'
+import SmsPage from './pages/SmsPage'
+import DevelopersPage from './pages/DevelopersPage'
+import OdooPage from './pages/OdooPage'
+import CabinetPage from './pages/CabinetPage'
 
 export type CompanyInfo = { name: string; slug: string; url: string }
 export type Me = { email: string; full_name: string; role: 'owner' | 'admin' | 'member'; company: CompanyInfo }
 
-export default function App() {
+export default function App({ tenancy }: { tenancy: string }) {
   const { t } = useT()
   // Also sets the csrftoken cookie for this host.
   const ctx = useQuery({ queryKey: ['ctx'], queryFn: () => get<{ company: CompanyInfo | null }>('/auth/csrf') })
@@ -26,7 +30,7 @@ export default function App() {
   const company = ctx.data?.company
   if (!company) {
     // app.* (or the bare domain): sign up and pick a company.
-    return <PlatformHome />
+    return <PlatformHome tenancy={tenancy} />
   }
   return (
     <Routes>
@@ -38,6 +42,7 @@ export default function App() {
 }
 
 function Tenant() {
+  const location = useLocation()
   const me = useQuery({ queryKey: ['me'], queryFn: () => get<Me>('/auth/me') })
   if (me.isLoading) return null
   if (me.isError) return <Navigate to="/login" replace />
@@ -49,6 +54,10 @@ function Tenant() {
         <Route path="integrations/amocrm" element={<AmoCrmPage me={me.data!} />} />
         <Route path="providers" element={<ProvidersPage me={me.data!} />} />
         <Route path="payments" element={<PaymentsPage />} />
+        <Route path="sms" element={<SmsPage me={me.data!} />} />
+        <Route path="integrations/odoo" element={<OdooPage me={me.data!} />} />
+        <Route path="developers" element={<DevelopersPage me={me.data!} />} />
+        <Route path="cabinet" element={<CabinetPage me={me.data!} key={location.hash} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

@@ -6,6 +6,27 @@ from config.celery import app as celery_app
 
 
 @pytest.fixture(autouse=True)
+def _force_login_grants_companies(monkeypatch):
+    """force_login in tests stands for "signed in to every company the user is in".
+
+    Real sign-ins grant companies one by one (see test_security.py).
+    """
+    from django.test import Client
+
+    original = Client.force_login
+
+    def force_login(self, user, backend=None):
+        original(self, user, backend)
+        from accounts.services import SESSION_COMPANIES
+
+        session = self.session
+        session[SESSION_COMPANIES] = list(user.memberships.values_list("company_id", flat=True))
+        session.save()
+
+    monkeypatch.setattr(Client, "force_login", force_login)
+
+
+@pytest.fixture(autouse=True)
 def _eager_celery(settings):
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
@@ -14,9 +35,6 @@ def _eager_celery(settings):
     settings.PUBLIC_SCHEME = "https"
     settings.PUBLIC_PORT = ""
     settings.ALLOWED_HOSTS = [".uzbridge.test"]
-    settings.AMOCRM_CLIENT_ID = "client-id"
-    settings.AMOCRM_CLIENT_SECRET = "client-secret-0123456789abcdef-0123456789"
-    settings.AMOCRM_REDIRECT_URI = "https://app.uzbridge.test/oauth/amocrm/callback"
     yield
 
 
@@ -24,7 +42,20 @@ def _eager_celery(settings):
 def company(db):
     from accounts.models import Company
 
-    return Company.objects.create(name="Acme", slug="acme", tin="123456789")
+    return Company.objects.create(
+        name="Acme",
+        slug="acme",
+        tin="123456789",
+        entity_type="legal",
+        legal_name="Acme MChJ",
+        legal_address="Toshkent, Amir Temur 1",
+        director="A. Karimov",
+        contact_phone="+998901234567",
+        bank_name="Kapitalbank",
+        bank_mfo="01158",
+        bank_account="20208000900100200300",
+        balance_tiyin=10_000_000 * 100,
+    )
 
 
 @pytest.fixture
@@ -49,6 +80,7 @@ def payme_account(company):
 
     return ProviderAccount.objects.create(
         company=company,
+        is_enabled=True,
         provider="payme",
         merchant_id="5e730e8e0b852a417aa49ceb",
         test_secret="TESTKEY",
@@ -62,6 +94,7 @@ def click_account(company):
 
     return ProviderAccount.objects.create(
         company=company,
+        is_enabled=True,
         provider="click",
         merchant_id="11111",
         service_id="22222",
@@ -77,6 +110,7 @@ def uzum_account(company):
 
     return ProviderAccount.objects.create(
         company=company,
+        is_enabled=True,
         provider="uzum",
         merchant_id="7b3f1a52-0000-4000-8000-000000000001",
         secret="9c1e2b77-0000-4000-8000-000000000002",

@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_uzbridge_sms_template_user,uzbridge.sms.template user,model_uzbridge_sms_template,base.group_user,1,0,0,0
+access_uzbridge_sms_template_system,uzbridge.sms.template system,model_uzbridge_sms_template,base.group_system,1,1,1,1
+access_uzbridge_sms_variable_user,uzbridge.sms.variable user,model_uzbridge_sms_variable,base.group_user,1,0,0,0
+access_uzbridge_sms_variable_system,uzbridge.sms.variable system,model_uzbridge_sms_variable,base.group_system,1,1,1,1

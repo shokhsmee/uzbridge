@@ -199,3 +199,46 @@ def test_checkout_url(payme_account, invoice):
     assert decoded == (
         f"m=5e730e8e0b852a417aa49ceb;ac.order_id={invoice.number};a=15000000;c=https://acme.uzbridge.test/p/x/;l=ru"
     )
+
+
+@pytest.mark.django_db
+def test_custom_account_field(client, payme_account, invoice):
+    """The field name is whatever the merchant set on its Payme cash desk."""
+    payme_account.account_field = "invoice"
+    payme_account.save()
+    r = rpc(
+        client,
+        payme_account,
+        "CheckPerformTransaction",
+        {"amount": invoice.amount_tiyin, "account": {"invoice": str(invoice.number)}},
+    )
+    assert r["result"]["allow"] is True
+    r = rpc(
+        client,
+        payme_account,
+        "CheckPerformTransaction",
+        {"amount": invoice.amount_tiyin, "account": {"order_id": str(invoice.number)}},
+    )
+    assert r["error"]["data"] == "invoice"
+    url = payme.checkout_url(payme_account, invoice)
+    assert f";ac.invoice={invoice.number};" in base64.b64decode(url.rsplit("/", 1)[1]).decode()
+
+
+@pytest.mark.django_db
+def test_ip_allowlist_only_in_production(client, settings, payme_account, invoice):
+    settings.PAYME_ALLOWED_IPS = ["185.234.113.1"]
+    params = {"amount": invoice.amount_tiyin, "account": acc(invoice)}
+    assert "result" in rpc(client, payme_account, "CheckPerformTransaction", params)  # sandbox: any IP
+    payme_account.test_mode = False
+    payme_account.save()
+    prod = basic("Paycom", "PRODKEY")
+    assert rpc(client, payme_account, "CheckPerformTransaction", params, auth=prod)["error"]["code"] == -32504
+    r = client.post(
+        f"/cb/payme/{payme_account.public_id}/",
+        data=json.dumps({"method": "CheckPerformTransaction", "params": params, "id": 1}),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=prod,
+        HTTP_HOST="api.uzbridge.test",
+        HTTP_X_FORWARDED_FOR="185.234.113.1",
+    )
+    assert r.json()["result"]["allow"] is True

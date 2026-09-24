@@ -17,7 +17,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from ..models import Invoice, Provider, ProviderAccount, ProviderTransaction
-from ..services import mark_paid, receipt_items, vat_tiyin
+from ..services import mark_paid, may_take, receipt_items, vat_tiyin
 
 SUCCESS = 0
 SIGN_FAILED = -1
@@ -104,7 +104,8 @@ def _invoice(account, p, *, lock=True) -> Invoice | None:
     if not number.isdigit():
         return None
     qs = Invoice.objects.filter(company_id=account.company_id, number=int(number))
-    return (qs.select_for_update() if lock else qs).first()
+    invoice = (qs.select_for_update() if lock else qs).first()
+    return invoice if invoice is not None and may_take(account, invoice) else None
 
 
 @transaction.atomic
@@ -225,3 +226,30 @@ def submit_fiscal_items(account: ProviderAccount, txn: ProviderTransaction) -> d
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def reverse(account: ProviderAccount, txn: ProviderTransaction) -> dict:
+    """Refund a completed payment (Merchant API "payment reversal").
+
+    Click only reverses card payments from the current month (or the 1st of
+    the next one); anything older has to go through Click support.
+    """
+    paydoc = txn.meta.get("paydoc_id")
+    if not (account.merchant_user_id and paydoc):
+        raise ClickApiError("Merchant User ID or Click payment id is missing; refund it in the Click cabinet.")
+    resp = httpx.delete(
+        f"{settings.CLICK_API_URL}/payment/reversal/{account.service_id}/{paydoc}",
+        headers={"Auth": auth_header(account), "Accept": "application/json"},
+        timeout=20,
+    )
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if resp.status_code >= 400 or int(data.get("error_code", -1)) != 0:
+        raise ClickApiError(data.get("error_note") or f"Click answered {resp.status_code}")
+    return data
+
+
+class ClickApiError(Exception):
+    pass

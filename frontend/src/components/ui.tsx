@@ -68,12 +68,15 @@ export function Card({ children, className = '' }: { children: ReactNode; classN
   return <section className={`rounded-xl border border-line bg-surface ${className}`}>{children}</section>
 }
 
-export function PageHeader({ title, lede, action }: { title: string; lede?: string; action?: ReactNode }) {
+export function PageHeader({ title, lede, action, logo }: { title: string; lede?: string; action?: ReactNode; logo?: string }) {
   return (
     <header className="flex flex-wrap items-end justify-between gap-4 mb-6">
-      <div>
+      <div className="flex items-start gap-4">
+        {logo && <img src={logo} alt="" className="size-12 shrink-0 rounded-xl border border-line bg-white object-contain" />}
+        <div>
         <h1 className="text-2xl font-semibold tracking-tight text-balance">{title}</h1>
         {lede && <p className="text-muted mt-1 max-w-2xl">{lede}</p>}
+        </div>
       </div>
       {action}
     </header>
@@ -144,11 +147,7 @@ export function LangSwitch() {
 export function Logo() {
   return (
     <span className="inline-flex items-center gap-2 font-semibold tracking-tight">
-      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden>
-        <rect x="1" y="1" width="20" height="20" rx="6" fill="var(--color-accent)" />
-        <path d="M5 14c2.5-5 9.5-5 12 0" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" />
-        <path d="M7 14v3M15 14v3M11 11v6" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
-      </svg>
+      <img src="/brand/n-mark.svg" width={26} height={26} alt="" aria-hidden />
       uzbridge
     </span>
   )

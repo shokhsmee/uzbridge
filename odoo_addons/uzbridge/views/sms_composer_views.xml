@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sms_composer_view_form" model="ir.ui.view">
+        <field name="name">sms.composer.form.uzbridge</field>
+        <field name="model">sms.composer</field>
+        <field name="inherit_id" ref="sms.sms_composer_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="(//field[@name='body'])[1]" position="before">
+                <field name="uzbridge_active" invisible="1"/>
+                <field name="current_company_id" invisible="1"/>
+                <div class="mb-2" invisible="not uzbridge_active">
+                    <label for="uzbridge_template_id" string="Shablon (Eskiz)" class="me-2"/>
+                    <field name="uzbridge_template_id" options="{'no_create': True, 'no_open': True}"
+                           placeholder="Approved template…" class="w-75"/>
+                </div>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="uzbridge_sms_template_action" model="ir.actions.act_window">
+        <field name="name">uzbridge SMS templates</field>
+        <field name="res_model">uzbridge.sms.template</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="uzbridge_sms_template_list" model="ir.ui.view">
+        <field name="name">uzbridge.sms.template.list</field>
+        <field name="model">uzbridge.sms.template</field>
+        <field name="arch" type="xml">
+            <list create="false">
+                <field name="body"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+</odoo>

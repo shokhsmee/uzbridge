@@ -14,16 +14,19 @@ class Provider(models.TextChoices):
 
 
 class ProviderAccount(models.Model):
-    """A company's merchant credentials for one provider.
+    """One merchant account of a company (it may have several per provider).
 
     `public_id` goes into the callback URL we give the provider, so the
-    callback finds its merchant without trusting anything in the payload.
+    callback finds its merchant without trusting anything in the payload;
+    that URL is also what keeps two Payme cash desks of one company apart.
     """
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="provider_accounts")
     provider = models.CharField(max_length=10, choices=Provider.choices)
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    is_enabled = models.BooleanField(default=True)
+    label = models.CharField(max_length=80, blank=True)  # e.g. "Chilonzor filiali"
+    # Off until its keys are entered and it is switched on.
+    is_enabled = models.BooleanField(default=False)
     test_mode = models.BooleanField(default=True)
 
     # Payme: merchant_id (cash desk id). Click: merchant_id. Uzum: terminal_id.
@@ -35,6 +38,8 @@ class ProviderAccount(models.Model):
     secret = EncryptedTextField(blank=True)
     # Payme sandbox key (TEST_KEY).
     test_secret = EncryptedTextField(blank=True)
+    # Payme: account field name configured on the cash desk ("order_id" by default).
+    account_field = models.CharField(max_length=32, blank=True, default="order_id")
     # Uzum: the terminal has auto-fiscalization switched on.
     auto_fiscal = models.BooleanField(default=False)
 
@@ -42,10 +47,16 @@ class ProviderAccount(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["company", "provider"], name="uniq_provider_account")]
+        verbose_name = "payment account"
+        verbose_name_plural = "payment accounts"
+        ordering = ["provider", "created_at", "pk"]
 
     def __str__(self):
-        return f"{self.company.slug}:{self.provider}"
+        return f"{self.company.slug}:{self.provider}" + (f":{self.label}" if self.label else "")
+
+    @property
+    def display_name(self) -> str:
+        return f"{self.get_provider_display()} · {self.label}" if self.label else self.get_provider_display()
 
     @property
     def active_secret(self) -> str:
@@ -72,6 +83,10 @@ class FiscalDefaults(models.Model):
     vat_percent = models.PositiveSmallIntegerField(default=12)
     units = models.CharField(max_length=20, blank=True)
 
+    class Meta:
+        verbose_name = "fiscal defaults"
+        verbose_name_plural = "fiscal defaults"
+
 
 class Invoice(models.Model):
     class Status(models.TextChoices):
@@ -83,6 +98,9 @@ class Invoice(models.Model):
     class Source(models.TextChoices):
         MANUAL = "manual", "Manual"
         AMOCRM = "amocrm", "amoCRM"
+        ODOO = "odoo", "Odoo"
+        API = "api", "API"
+        TOPUP = "topup", "Balance top-up"
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="invoices")
     number = models.PositiveIntegerField()
@@ -93,6 +111,10 @@ class Invoice(models.Model):
     amount_tiyin = models.PositiveBigIntegerField()
     currency = models.PositiveSmallIntegerField(default=860)
     description = models.CharField(max_length=255, blank=True)
+    # Customer's mobile (998XXXXXXXXX) for SMS; from amoCRM's contact or typed in.
+    customer_phone = models.CharField(max_length=12, blank=True)
+    # Where the pay page sends the customer back to (e.g. the Odoo payment status page).
+    return_url = models.URLField(max_length=500, blank=True)
     # [{title, price_tiyin, count, ikpu_code, package_code, vat_percent, units}]
     items = models.JSONField(default=list, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
@@ -100,6 +122,13 @@ class Invoice(models.Model):
     paid_at = models.DateTimeField(null=True, blank=True)
     crm_synced_at = models.DateTimeField(null=True, blank=True)
     crm_sync_error = models.TextField(blank=True)
+    # The matching invoice in amoCRM's "Счета/покупки" catalog, if we made one.
+    amo_bill_id = models.BigIntegerField(null=True, blank=True)
+    # Where it came from, which decides the merchant accounts that may take it.
+    amo_connection = models.ForeignKey(
+        "amocrm.AmoConnection", null=True, blank=True, on_delete=models.SET_NULL, related_name="invoices"
+    )
+    api_key = models.ForeignKey("developer.ApiKey", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_by_label = models.CharField(max_length=150, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -149,6 +178,8 @@ class ProviderTransaction(models.Model):
     raw = models.JSONField(default=list, blank=True)
 
     class Meta:
+        verbose_name = "provider transaction"
+        verbose_name_plural = "provider transactions"
         ordering = ["created_at"]
         constraints = [
             models.UniqueConstraint(fields=["provider", "account", "provider_txn_id"], name="uniq_provider_txn")

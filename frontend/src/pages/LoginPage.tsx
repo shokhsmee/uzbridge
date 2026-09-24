@@ -37,7 +37,7 @@ export default function LoginPage({ company }: { company: CompanyInfo }) {
       </div>
       <form onSubmit={submit} className="my-auto grid gap-4 max-w-sm w-full mx-auto">
         <div>
-          <p className="text-sm text-muted font-mono">{new URL(company.url).host}</p>
+          <p className="text-sm text-muted font-mono">{company.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</p>
           <h1 className="text-2xl font-semibold tracking-tight">{company.name}</h1>
         </div>
         <Field label={t('auth.email')}>

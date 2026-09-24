@@ -1,26 +1,33 @@
-"""amoCRM OAuth2 for our external integration.
+"""amoCRM OAuth2, with one integration per company.
 
-https://www.amocrm.ru/developers/content/oauth/step-by-step
+The dashboard shows amoCRM's connect button without a client_id, so amoCRM
+creates a private integration in the account the user picks, POSTs its keys
+to our secrets_uri, then redirects back with a code
+(https://www.amocrm.ru/developers/content/oauth/button). The keys live on the
+company's AmoConnection.
+
 Refresh tokens are single-use: whoever refreshes must store the new pair in
 the same transaction, under a row lock, or the next refresh fails for good.
 """
 
+import hashlib
+import hmac
 import re
 import secrets
 from datetime import timedelta
-from urllib.parse import urlencode
 
 import httpx
-from django.conf import settings
 from django.core import signing
 from django.db import transaction
 from django.utils import timezone
 
-from .models import AmoConnection
+from core.tenancy import platform_url
+
+from .models import AmoConnection, AmoInstall
 
 STATE_SALT = "amocrm-oauth"
 STATE_MAX_AGE = 20 * 60
-# Only ever send our client_secret to a real amoCRM/Kommo account host.
+# Only ever send a client_secret to a real amoCRM/Kommo account host.
 HOST_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}\.(amocrm\.ru|amocrm\.com|kommo\.com)$")
 REFRESH_MARGIN = timedelta(hours=2)
 
@@ -29,40 +36,59 @@ class OAuthError(Exception):
     pass
 
 
-def authorize_url(company_id: int, user_id: int) -> str:
-    state = signing.dumps({"c": company_id, "u": user_id, "n": secrets.token_hex(8)}, salt=STATE_SALT)
-    q = {"client_id": settings.AMOCRM_CLIENT_ID, "state": state, "mode": "post_message"}
-    return f"https://www.amocrm.ru/oauth?{urlencode(q)}"
+def redirect_uri() -> str:
+    return platform_url("app", "/oauth/amocrm/callback")
 
 
-def read_state(state: str) -> dict:
+def secrets_uri() -> str:
+    return platform_url("app", "/oauth/amocrm/secrets")
+
+
+def start_install(company, user) -> dict:
+    """Everything the connect button needs; `state` ties the keys, the code and the company together."""
+    nonce = secrets.token_hex(12)
+    AmoInstall.objects.filter(company=company, created_at__lt=timezone.now() - timedelta(hours=1)).delete()
+    AmoInstall.objects.create(nonce=nonce, company=company, user=user)
+    return {
+        "state": signing.dumps({"n": nonce}, salt=STATE_SALT),
+        "redirect_uri": redirect_uri(),
+        "secrets_uri": secrets_uri(),
+        "logo": platform_url("app", "/amocrm-logo.png"),
+        "name": "uzbridge",
+        "description": (
+            "Payme, Click va Uzum toʻlov havolalari bitimdan; toʻlovdan soʻng bitim “Toʻlandi” bosqichiga oʻtadi."
+        ),
+        "scopes": "crm,notifications",
+    }
+
+
+def install_for(state: str) -> AmoInstall:
     try:
-        return signing.loads(state, salt=STATE_SALT, max_age=STATE_MAX_AGE)
+        data = signing.loads(state, salt=STATE_SALT, max_age=STATE_MAX_AGE)
     except signing.BadSignature as exc:
         raise OAuthError("The connection link has expired. Start again from the dashboard.") from exc
+    install = AmoInstall.objects.select_related("company", "user").filter(nonce=data.get("n")).first()
+    if install is None:
+        raise OAuthError("The connection link has expired. Start again from the dashboard.")
+    return install
 
 
 def valid_host(host: str) -> bool:
     return bool(HOST_RE.match(host.lower()))
 
 
-def _token_request(host: str, payload: dict) -> dict:
+def _token_request(host: str, client_id: str, client_secret: str, payload: dict) -> dict:
     if not valid_host(host):
         raise OAuthError(f"Not an amoCRM host: {host}")
-    body = {
-        "client_id": settings.AMOCRM_CLIENT_ID,
-        "client_secret": settings.AMOCRM_CLIENT_SECRET,
-        "redirect_uri": settings.AMOCRM_REDIRECT_URI,
-        **payload,
-    }
+    body = {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri(), **payload}
     resp = httpx.post(f"https://{host}/oauth2/access_token", json=body, timeout=20)
     if resp.status_code != 200:
         raise OAuthError(f"amoCRM token endpoint answered {resp.status_code}: {resp.text[:300]}")
     return resp.json()
 
 
-def exchange_code(host: str, code: str) -> dict:
-    return _token_request(host, {"grant_type": "authorization_code", "code": code})
+def exchange_code(host: str, client_id: str, client_secret: str, code: str) -> dict:
+    return _token_request(host, client_id, client_secret, {"grant_type": "authorization_code", "code": code})
 
 
 def apply_tokens(conn: AmoConnection, tokens: dict) -> None:
@@ -79,7 +105,12 @@ def refresh(conn_id: int, *, force: bool = False) -> AmoConnection:
         if not force and conn.expires_at - timezone.now() > REFRESH_MARGIN:
             return conn  # someone else refreshed while we waited for the lock
         try:
-            tokens = _token_request(conn.host, {"grant_type": "refresh_token", "refresh_token": conn.refresh_token})
+            tokens = _token_request(
+                conn.host,
+                conn.client_id,
+                conn.client_secret,
+                {"grant_type": "refresh_token", "refresh_token": conn.refresh_token},
+            )
         except OAuthError as exc:
             failure = exc
         else:
@@ -93,13 +124,8 @@ def refresh(conn_id: int, *, force: bool = False) -> AmoConnection:
     raise failure
 
 
-def uninstall_signature_ok(account_id: str, signature: str) -> bool:
-    import hashlib
-    import hmac
-
+def uninstall_signature_ok(conn: AmoConnection, signature: str) -> bool:
     expected = hmac.new(
-        settings.AMOCRM_CLIENT_SECRET.encode(),
-        f"{settings.AMOCRM_CLIENT_ID}|{account_id}".encode(),
-        hashlib.sha256,
+        conn.client_secret.encode(), f"{conn.client_id}|{conn.account_id}".encode(), hashlib.sha256
     ).hexdigest()
     return bool(signature) and hmac.compare_digest(expected, signature)

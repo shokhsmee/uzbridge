@@ -9,6 +9,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         base = settings.BASE_DOMAIN
+        self.stdout.write(base)
         for sub in [
             "app",
             "api",

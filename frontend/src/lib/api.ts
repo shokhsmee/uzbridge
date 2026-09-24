@@ -8,6 +8,12 @@ export class ApiError extends Error {
   }
 }
 
+// Path tenancy (uzbridge.uz/acme/...): the company travels in a header.
+let companySlug: string | null = null
+export function setCompanySlug(slug: string | null) {
+  companySlug = slug
+}
+
 function csrfToken(): string {
   return document.cookie.match(/(?:^|; )csrftoken=([^;]+)/)?.[1] ?? ''
 }
@@ -30,6 +36,7 @@ function messageOf(body: unknown, status: number): string {
 export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const method = init.method ?? 'GET'
   const headers: Record<string, string> = { Accept: 'application/json' }
+  if (companySlug) headers['X-Company'] = companySlug
   if (method !== 'GET') {
     headers['Content-Type'] = 'application/json'
     headers['X-CSRFToken'] = csrfToken()
@@ -42,6 +49,10 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   })
   const text = await res.text()
   const body = text ? JSON.parse(text) : null
+  if (res.status === 401 && companySlug && !path.startsWith('/auth/')) {
+    // Session ended (other device signed in, or ended from Kabinet): sign in again.
+    window.location.href = `/${companySlug}/login`
+  }
   if (!res.ok) throw new ApiError(res.status, messageOf(body, res.status), body)
   return body as T
 }

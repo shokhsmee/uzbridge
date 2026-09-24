@@ -116,6 +116,15 @@ function Drawer({ id, onClose }: { id: string; onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ['invoices'] })
     },
   })
+  const refund = useMutation({
+    mutationFn: () => post(`/payments/invoices/${id}/refund`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoice', id] })
+      qc.invalidateQueries({ queryKey: ['invoices'] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
+    },
+  })
+  const [confirmRefund, setConfirmRefund] = useState(false)
   const inv = q.data
   return (
     <Overlay onClose={onClose}>
@@ -168,6 +177,28 @@ function Drawer({ id, onClose }: { id: string; onClose: () => void }) {
               <p className="text-sm text-muted">—</p>
             )}
           </div>
+          {inv.status === 'paid' && (
+            <div className="grid gap-2">
+              {!confirmRefund ? (
+                <div>
+                  <Button variant="danger" onClick={() => setConfirmRefund(true)}>
+                    {t('pay.refund')}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm">{t('pay.refund_confirm')} {soum(inv.amount_tiyin)} soʻm?</span>
+                  <Button variant="danger" busy={refund.isPending} onClick={() => refund.mutate()}>
+                    {t('pay.refund')} ✓
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirmRefund(false)}>
+                    {t('common.close')}
+                  </Button>
+                </div>
+              )}
+              <ErrorNote error={refund.error} />
+            </div>
+          )}
           {inv.status === 'pending' && (
             <div>
               <Button variant="danger" busy={cancel.isPending} onClick={() => cancel.mutate()}>
@@ -187,8 +218,9 @@ function NewInvoice({ onClose, onCreated }: { onClose: () => void; onCreated: (i
   const qc = useQueryClient()
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
+  const [phone, setPhone] = useState('')
   const create = useMutation({
-    mutationFn: () => post<Invoice>('/payments/invoices', { amount, description }),
+    mutationFn: () => post<Invoice>('/payments/invoices', { amount, description, phone }),
     onSuccess: (inv) => {
       qc.invalidateQueries({ queryKey: ['invoices'] })
       qc.invalidateQueries({ queryKey: ['stats'] })
@@ -213,6 +245,9 @@ function NewInvoice({ onClose, onCreated }: { onClose: () => void; onCreated: (i
         </Field>
         <Field label={t('pay.description')}>
           <Input id="new-description" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <Field label={t('sms.phone')} hint={t('pay.phone_hint')}>
+          <Input id="new-phone" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 90 123 45 67" />
         </Field>
         <ErrorNote error={create.error} />
         <Button type="submit" busy={create.isPending}>

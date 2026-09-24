@@ -1,5 +1,7 @@
+import re
 from datetime import timedelta
 
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from ninja import Router, Schema
@@ -7,7 +9,7 @@ from ninja.errors import HttpError
 
 from core.api import member_auth, require_manager
 from core.crypto import mask
-from core.tenancy import company_url, platform_url
+from core.tenancy import pay_url, platform_url
 
 from . import services
 from .models import FiscalDefaults, Invoice, Provider, ProviderAccount
@@ -18,15 +20,21 @@ CALLBACK_PATH = {Provider.PAYME: "cb/payme", Provider.CLICK: "cb/click", Provide
 
 
 class ProviderIn(Schema):
-    is_enabled: bool = True
+    label: str = ""
+    is_enabled: bool = False
     test_mode: bool = True
     merchant_id: str = ""
     service_id: str = ""
     merchant_user_id: str = ""
+    account_field: str = "order_id"
     # Secrets: omitted or null = keep the stored value, "" = clear it.
     secret: str | None = None
     test_secret: str | None = None
     auto_fiscal: bool = False
+
+
+class NewProviderIn(ProviderIn):
+    provider: str
 
 
 class FiscalIn(Schema):
@@ -39,49 +47,96 @@ class FiscalIn(Schema):
 class InvoiceIn(Schema):
     amount: str
     description: str = ""
+    phone: str = ""
 
 
-def _provider_out(provider: str, acc: ProviderAccount | None) -> dict:
-    out = {
-        "provider": provider,
-        "label": Provider(provider).label,
-        "exists": acc is not None,
-        "is_enabled": acc.is_enabled if acc else False,
-        "is_configured": acc.is_configured if acc else False,
-        "test_mode": acc.test_mode if acc else True,
-        "merchant_id": acc.merchant_id if acc else "",
-        "service_id": acc.service_id if acc else "",
-        "merchant_user_id": acc.merchant_user_id if acc else "",
-        "secret_masked": mask(acc.secret) if acc else "",
-        "test_secret_masked": mask(acc.test_secret) if acc else "",
-        "auto_fiscal": acc.auto_fiscal if acc else False,
-        "callback_url": platform_url("api", f"/{CALLBACK_PATH[provider]}/{acc.public_id}/") if acc else "",
+def _provider_out(acc: ProviderAccount) -> dict:
+    return {
+        "id": acc.pk,
+        "provider": acc.provider,
+        "provider_label": acc.get_provider_display(),
+        "label": acc.label,
+        "is_enabled": acc.is_enabled,
+        "is_configured": acc.is_configured,
+        "test_mode": acc.test_mode,
+        "merchant_id": acc.merchant_id,
+        "service_id": acc.service_id,
+        "merchant_user_id": acc.merchant_user_id,
+        "secret_masked": mask(acc.secret),
+        "test_secret_masked": mask(acc.test_secret),
+        "auto_fiscal": acc.auto_fiscal,
+        "account_field": acc.account_field or "order_id",
+        # Its own callback URL: what keeps two cash desks of one provider apart.
+        "callback_url": platform_url("api", f"/{CALLBACK_PATH[acc.provider]}/{acc.public_id}/"),
+        "has_payments": acc.transactions.exists(),
     }
-    return out
 
 
 @router.get("/providers")
 def list_providers(request):
-    accounts = {a.provider: a for a in ProviderAccount.objects.filter(company=request.company)}
-    return [_provider_out(p, accounts.get(p)) for p in Provider.values]
+    """Every merchant account of the company, several per provider allowed."""
+    return [_provider_out(a) for a in ProviderAccount.objects.filter(company=request.company)]
 
 
-@router.put("/providers/{provider}")
-def save_provider(request, provider: str, data: ProviderIn):
-    require_manager(request)
-    if provider not in Provider.values:
-        raise HttpError(404, "Unknown provider.")
-    acc, _ = ProviderAccount.objects.get_or_create(company=request.company, provider=provider)
-    for f in ("is_enabled", "test_mode", "auto_fiscal"):
+def _apply(acc: ProviderAccount, data: ProviderIn) -> None:
+    acc.label = data.label.strip()[:80]
+    for f in ("test_mode", "auto_fiscal"):
         setattr(acc, f, getattr(data, f))
     for f in ("merchant_id", "service_id", "merchant_user_id"):
         setattr(acc, f, getattr(data, f).strip())
+    account_field = data.account_field.strip() or "order_id"
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,31}", account_field):
+        raise HttpError(422, "Account field: letters, digits and _ only, as named on the Payme cash desk.")
+    acc.account_field = account_field
     if data.secret is not None:
         acc.secret = data.secret.strip()
     if data.test_secret is not None:
         acc.test_secret = data.test_secret.strip()
+    # Switching on needs the keys first.
+    if data.is_enabled and not acc.is_configured:
+        raise HttpError(422, "Fill in the merchant keys before switching this account on.")
+    acc.is_enabled = data.is_enabled
+
+
+@router.post("/providers")
+@transaction.atomic
+def add_provider(request, data: NewProviderIn):
+    require_manager(request)
+    if data.provider not in Provider.values:
+        raise HttpError(404, "Unknown provider.")
+    acc = ProviderAccount(company=request.company, provider=data.provider)
+    _apply(acc, data)
     acc.save()
-    return _provider_out(provider, acc)
+    _billing_gate(request, "payment")  # raising rolls the save back
+    return _provider_out(acc)
+
+
+def _own(request, account_id: int) -> ProviderAccount:
+    acc = ProviderAccount.objects.filter(company=request.company, pk=account_id).first()
+    if acc is None:
+        raise HttpError(404, "Account not found.")
+    return acc
+
+
+@router.put("/providers/{account_id}")
+@transaction.atomic
+def save_provider(request, account_id: int, data: ProviderIn):
+    require_manager(request)
+    acc = _own(request, account_id)
+    _apply(acc, data)
+    acc.save()
+    _billing_gate(request, "payment")
+    return _provider_out(acc)
+
+
+@router.delete("/providers/{account_id}")
+def delete_provider(request, account_id: int):
+    require_manager(request)
+    acc = _own(request, account_id)
+    if acc.transactions.exists():
+        raise HttpError(409, "This account has taken payments; switch it off instead of deleting it.")
+    acc.delete()
+    return {"ok": True}
 
 
 @router.get("/fiscal")
@@ -110,6 +165,7 @@ def _invoice_out(inv: Invoice, with_txns=False) -> dict:
         "source": inv.source,
         "external_id": inv.external_id,
         "external_name": inv.external_name,
+        "customer_phone": inv.customer_phone,
         "status": inv.status,
         "paid_via": inv.paid_via,
         "paid_at": inv.paid_at,
@@ -117,7 +173,7 @@ def _invoice_out(inv: Invoice, with_txns=False) -> dict:
         "created_by": inv.created_by_label,
         "crm_synced_at": inv.crm_synced_at,
         "crm_sync_error": inv.crm_sync_error,
-        "url": company_url(inv.company, f"/p/{inv.public_id}/"),
+        "url": pay_url(inv),
     }
     if with_txns:
         out["transactions"] = [
@@ -168,6 +224,7 @@ def create_invoice(request, data: InvoiceIn):
         amount_tiyin=_to_tiyin(data.amount),
         description=data.description[:255],
         created_by_label=request.user.full_name or request.user.email,
+        customer_phone=data.phone,
     )
     return _invoice_out(inv)
 
@@ -180,6 +237,19 @@ def cancel_invoice(request, public_id: str):
     try:
         inv = services.cancel_invoice(inv)
     except ValueError as e:
+        raise HttpError(409, str(e))
+    return _invoice_out(inv)
+
+
+@router.post("/invoices/{public_id}/refund")
+def refund_invoice(request, public_id: str):
+    require_manager(request)
+    inv = Invoice.objects.filter(company=request.company, public_id=public_id).first()
+    if inv is None:
+        raise HttpError(404, "Invoice not found.")
+    try:
+        inv = services.refund_invoice(inv)
+    except services.RefundError as e:
         raise HttpError(409, str(e))
     return _invoice_out(inv)
 
@@ -208,3 +278,18 @@ def stats(request, days: int = 30):
         "pending_tiyin": agg["pending_tiyin"] or 0,
         "by_provider": by_provider,
     }
+
+
+def _billing_gate(request, kind: str) -> None:
+    from billing.services import InsufficientBalance, ProfileIncomplete, apply_change
+
+    try:
+        apply_change(request.company, kind)
+    except ProfileIncomplete as e:
+        raise HttpError(409, f"Kabinet: kompaniya maʼlumotlarini toʻldiring ({', '.join(e.missing)}).")
+    except InsufficientBalance as e:
+        raise HttpError(
+            402,
+            f"Balans yetarli emas: {e.needed // 100:,} soʻm kerak, balansda {e.balance // 100:,} soʻm. "
+            "Kabinet → Balans’ni toʻldiring.".replace(",", " "),
+        )

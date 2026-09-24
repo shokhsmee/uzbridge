@@ -41,7 +41,7 @@ def request_certificate() -> None:
 
 
 def host_ready(slug: str) -> bool:
-    if not settings.HOSTS_READY_FILE:
+    if settings.TENANCY == "path" or not settings.HOSTS_READY_FILE:
         return True
     try:
         hosts = Path(settings.HOSTS_READY_FILE).read_text().split()
@@ -82,3 +82,55 @@ def membership_for(user, company: Company | None) -> Membership | None:
     if company is None or not user.is_authenticated:
         return None
     return Membership.objects.filter(user=user, company=company).first()
+
+
+# ---------------------------------------------------------------- sessions
+
+SESSION_COMPANIES = "uzb_companies"
+
+
+def client_ip(request) -> str:
+    fwd = request.META.get("HTTP_X_FORWARDED_FOR")
+    return (fwd.split(",")[0].strip() if fwd else request.META.get("REMOTE_ADDR", "")) or None
+
+
+def grant_company(request, company: Company) -> None:
+    """Record that this browser signed in to `company` with a password or a handoff.
+
+    One domain means one Django session for every company (path tenancy), so being
+    a member isn't enough: each company has to be signed in to separately.
+    """
+    from django.contrib.sessions.models import Session
+
+    from .models import UserSession
+
+    ids = [i for i in request.session.get(SESSION_COMPANIES, []) if i != company.pk]
+    request.session[SESSION_COMPANIES] = [*ids, company.pk]
+    request.session.save()
+    key = request.session.session_key
+    if company.single_session:
+        others = UserSession.objects.filter(user=request.user, company=company).exclude(session_key=key)
+        Session.objects.filter(session_key__in=list(others.values_list("session_key", flat=True))).delete()
+        others.delete()
+    UserSession.objects.update_or_create(
+        session_key=key,
+        defaults={
+            "user": request.user,
+            "company": company,
+            "ip": client_ip(request),
+            "user_agent": request.META.get("HTTP_USER_AGENT", "")[:300],
+        },
+    )
+
+
+def has_company(request, company: Company) -> bool:
+    return company.pk in request.session.get(SESSION_COMPANIES, [])
+
+
+def end_session(session_key: str) -> None:
+    from django.contrib.sessions.models import Session
+
+    from .models import UserSession
+
+    Session.objects.filter(session_key=session_key).delete()
+    UserSession.objects.filter(session_key=session_key).delete()

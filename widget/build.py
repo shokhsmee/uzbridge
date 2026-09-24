@@ -25,6 +25,9 @@ LOGOS = {
     "logo_medium.png": (240, 84),
     "logo_min.png": (84, 84),
     "logo_dp.png": (174, 109),
+    # The tour (required by amoCRM since 2019) shows at least one picture per locale.
+    "tour_1_ru.png": (1000, 680),
+    "tour_1_en.png": (1000, 680),
 }
 ACCENT = (18, 135, 127)
 
@@ -60,7 +63,7 @@ def main():
     DIST.mkdir(exist_ok=True)
     out = DIST / "uzbridge-widget.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("manifest.json", (SRC / "manifest.json").read_text())
+        z.writestr("manifest.json", (SRC / "manifest.json").read_text().replace("__API_BASE__", api_base))
         z.writestr("script.js", (SRC / "script.js").read_text().replace("__API_BASE__", api_base))
         for f in sorted((SRC / "i18n").glob("*.json")):
             json.loads(f.read_text())

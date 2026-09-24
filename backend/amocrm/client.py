@@ -138,18 +138,37 @@ class AmoClient:
             )
         return out
 
-    def lead_custom_fields(self) -> list[dict]:
+    def lead_custom_fields(self, all_types: bool = True) -> list[dict]:
         data = self.request("GET", "/api/v4/leads/custom_fields", params={"limit": 250}) or {}
         return [
             {"id": f["id"], "name": f["name"], "type": f["type"]}
             for f in data.get("_embedded", {}).get("custom_fields", [])
         ]
 
+    def is_admin(self, user_id: int) -> bool:
+        user = self.request("GET", f"/api/v4/users/{int(user_id)}") or {}
+        return bool((user.get("rights") or {}).get("is_admin"))
+
     def lead(self, lead_id: int) -> dict | None:
         return self.request("GET", f"/api/v4/leads/{lead_id}")
 
     def update_lead(self, lead_id: int, fields: dict) -> dict:
         return self.request("PATCH", f"/api/v4/leads/{lead_id}", json={"updated_by": 0, **fields})
+
+    def lead_contact(self, lead_id: int) -> tuple[str, str]:
+        """(name, phone) of the lead's main contact; empty strings if there is none."""
+        lead = self.request("GET", f"/api/v4/leads/{lead_id}", params={"with": "contacts"}) or {}
+        contacts = lead.get("_embedded", {}).get("contacts", [])
+        main = next((c for c in contacts if c.get("is_main")), contacts[0] if contacts else None)
+        if not main:
+            return "", ""
+        contact = self.request("GET", f"/api/v4/contacts/{main['id']}") or {}
+        phone = ""
+        for f in contact.get("custom_fields_values") or []:
+            if f.get("field_code") == "PHONE" and f.get("values"):
+                phone = str(f["values"][0].get("value", ""))
+                break
+        return contact.get("name", ""), phone
 
     def add_note(self, lead_id: int, text: str) -> dict:
         return self.request(

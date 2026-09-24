@@ -85,9 +85,15 @@ class TestProviderSettings:
     def test_secrets_are_masked_and_kept(self, client, owner):
         client.force_login(owner)
         csrf = client.get("/api/auth/csrf", HTTP_HOST="acme.uzbridge.test").cookies["csrftoken"].value
-        body = {"merchant_id": "abc", "secret": "PRODKEY-123456", "test_secret": "TESTKEY-654321", "test_mode": True}
-        r = client.put(
-            "/api/payments/providers/payme",
+        body = {
+            "provider": "payme",
+            "merchant_id": "abc",
+            "secret": "PRODKEY-123456",
+            "test_secret": "TESTKEY-654321",
+            "test_mode": True,
+        }
+        r = client.post(
+            "/api/payments/providers",
             data=json.dumps(body),
             content_type="application/json",
             HTTP_HOST="acme.uzbridge.test",
@@ -97,9 +103,10 @@ class TestProviderSettings:
         out = r.json()
         assert "PRODKEY" not in json.dumps(out) and out["secret_masked"].endswith("3456")
         assert out["callback_url"].startswith("https://api.uzbridge.test/cb/payme/")
+        assert out["is_enabled"] is False  # off until switched on
         # Leaving secrets out keeps them.
         r = client.put(
-            "/api/payments/providers/payme",
+            f"/api/payments/providers/{out['id']}",
             data=json.dumps({"merchant_id": "abc2", "test_mode": False}),
             content_type="application/json",
             HTTP_HOST="acme.uzbridge.test",
@@ -112,8 +119,8 @@ class TestProviderSettings:
         client.force_login(owner)
         c = type(client)(enforce_csrf_checks=True)
         c.force_login(owner)
-        r = c.put(
-            "/api/payments/providers/payme", data="{}", content_type="application/json", HTTP_HOST="acme.uzbridge.test"
+        r = c.post(
+            "/api/payments/providers", data="{}", content_type="application/json", HTTP_HOST="acme.uzbridge.test"
         )
         assert r.status_code == 403
 
@@ -123,7 +130,10 @@ class TestProviderSettings:
         u = User.objects.create_user(email="m@acme.uz", password="x" * 10)
         Membership.objects.create(company=company, user=u, role="member")
         client.force_login(u)
-        r = client.put(
-            "/api/payments/providers/payme", data="{}", content_type="application/json", HTTP_HOST="acme.uzbridge.test"
+        r = client.post(
+            "/api/payments/providers",
+            data='{"provider": "payme"}',
+            content_type="application/json",
+            HTTP_HOST="acme.uzbridge.test",
         )
         assert r.status_code == 403

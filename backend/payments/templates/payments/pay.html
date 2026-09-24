@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ t.title }} · {{ invoice.company.name }}</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
   :root { --ink:#14201f; --muted:#5b6765; --line:#dde3e2; --ground:#f3f5f5; --card:#fff; --accent:#12877f; --ok:#1d7a3a; --warn:#9a6a00; }
   * { box-sizing: border-box; }
@@ -23,6 +24,7 @@
   .warn { background:#f7eed8; color:var(--warn); }
   .langs { text-align:center; margin-top:16px; font-size:13px; }
   .langs a { color:var(--muted); margin:0 6px; }
+  .by { text-align:center; font-size:12px; color:var(--muted); display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px; }
 </style>
 </head>
 <body>
@@ -33,6 +35,7 @@
 
   {% if invoice.status == "paid" %}
     <div class="state ok">✓ {{ t.paid }} — {{ t.paid_note }}</div>
+    {% if invoice.return_url %}<a class="btn" style="margin-top:12px" href="{{ invoice.return_url }}">{{ t.back }} <span>→</span></a>{% endif %}
   {% elif invoice.status == "cancelled" %}
     <div class="state warn">{{ t.cancelled }}</div>
   {% elif invoice.status == "refunded" %}
@@ -54,5 +57,6 @@
   {% endif %}
 </main>
 <p class="langs"><a href="?lang=uz">Oʻzbekcha</a><a href="?lang=ru">Русский</a></p>
+<p class="by"><img src="/brand/n-mark.svg" width="16" height="16" alt=""> uzbridge</p>
 </body>
 </html>

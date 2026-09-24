@@ -15,10 +15,10 @@ from django.db import transaction
 from django.utils import timezone
 
 from ..models import Invoice, Provider, ProviderAccount, ProviderTransaction
-from ..services import mark_paid, mark_refunded, now_ms, receipt_items, to_ms
+from ..services import mark_paid, mark_refunded, may_take, now_ms, receipt_items, to_ms
 
 TIMEOUT = timedelta(milliseconds=43_200_000)  # 12 h
-ACCOUNT_FIELD = "order_id"
+DEFAULT_ACCOUNT_FIELD = "order_id"
 
 # Our account error codes inside Payme's -31050..-31099 range.
 ORDER_NOT_FOUND = -31050
@@ -56,11 +56,16 @@ def _error(code: int, data=None) -> RpcError:
     return RpcError(code, {"ru": ru, "uz": uz, "en": en}, data)
 
 
+def field(account: ProviderAccount) -> str:
+    """The account field name set on the merchant's Payme cash desk (e.g. order_id)."""
+    return account.account_field or DEFAULT_ACCOUNT_FIELD
+
+
 # ---------------------------------------------------------------- link
 
 
 def checkout_url(account: ProviderAccount, invoice: Invoice, *, return_url: str = "", lang: str = "uz") -> str:
-    parts = [f"m={account.merchant_id}", f"ac.{ACCOUNT_FIELD}={invoice.number}", f"a={invoice.amount_tiyin}"]
+    parts = [f"m={account.merchant_id}", f"ac.{field(account)}={invoice.number}", f"a={invoice.amount_tiyin}"]
     if return_url:
         parts.append(f"c={return_url}")
     parts.append(f"l={lang}")
@@ -114,21 +119,23 @@ def rpc_error(code: int, rpc_id=None) -> dict:
 
 
 def _invoice_for(account: ProviderAccount, params: dict, *, lock: bool) -> Invoice:
-    order_id = str((params.get("account") or {}).get(ACCOUNT_FIELD, ""))
+    order_id = str((params.get("account") or {}).get(field(account), ""))
     qs = Invoice.objects.filter(company_id=account.company_id)
     if lock:
         qs = qs.select_for_update()
     invoice = qs.filter(number=int(order_id)).first() if order_id.isdigit() else None
+    if invoice is not None and not may_take(account, invoice):
+        invoice = None  # routed to another cash desk of the company
     if invoice is None:
-        raise _error(ORDER_NOT_FOUND, ACCOUNT_FIELD)
+        raise _error(ORDER_NOT_FOUND, field(account))
     return invoice
 
 
-def _check_payable(invoice: Invoice, amount) -> None:
+def _check_payable(invoice: Invoice, amount, account_field: str = DEFAULT_ACCOUNT_FIELD) -> None:
     if not isinstance(amount, int) or isinstance(amount, bool) or amount != invoice.amount_tiyin:
         raise _error(-31001)
     if invoice.status != Invoice.Status.PENDING:
-        raise _error(ORDER_NOT_PAYABLE, ACCOUNT_FIELD)
+        raise _error(ORDER_NOT_PAYABLE, account_field)
 
 
 def _detail(invoice: Invoice) -> dict:
@@ -150,7 +157,7 @@ def _detail(invoice: Invoice) -> dict:
 
 def check_perform(account, params):
     invoice = _invoice_for(account, params, lock=False)
-    _check_payable(invoice, params.get("amount"))
+    _check_payable(invoice, params.get("amount"), field(account))
     return {"allow": True, "detail": _detail(invoice)}
 
 
@@ -202,7 +209,7 @@ def create_transaction(account, params):
 
     with transaction.atomic():
         invoice = _invoice_for(account, params, lock=True)
-        _check_payable(invoice, params.get("amount"))
+        _check_payable(invoice, params.get("amount"), field(account))
         busy = invoice.transactions.filter(provider=Provider.PAYME, state=ProviderTransaction.CREATED)
         if busy.exists():
             # One-time account: a second Payme transaction must wait for the first.
@@ -292,7 +299,7 @@ def get_statement(account, params):
                 "id": t.provider_txn_id,
                 "time": t.provider_time,
                 "amount": t.amount_tiyin,
-                "account": {ACCOUNT_FIELD: str(t.invoice.number)},
+                "account": {field(account): str(t.invoice.number)},
                 "create_time": to_ms(t.created_at),
                 "perform_time": to_ms(t.performed_at),
                 "cancel_time": to_ms(t.cancelled_at),

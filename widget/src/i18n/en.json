@@ -2,7 +2,8 @@
   "widget": {
     "name": "uzbridge — Payme, Click, Uzum payments",
     "short_description": "Payment links from a lead; paid leads move to your Paid stage automatically.",
-    "description": "Create a payment link right in the lead card. Customers pay with Payme, Click or Uzum Bank, the fiscal receipt is issued automatically and the lead moves to the stage you chose. Merchant keys and stages are set in the uzbridge dashboard: https://app.uzbridge.uz"
+    "description": "Create a payment link right in the lead card. Customers pay with Payme, Click or Uzum Bank, the fiscal receipt is issued automatically and the lead moves to the stage you chose. Merchant keys and stages are set in the uzbridge dashboard: https://uzbridge.shokhsmee.uz",
+    "tour_description": "A Payment panel in the lead card: a Payme / Click / Uzum link and an SMS to the client in one click."
   },
   "ui": {
     "title": "Payment",
@@ -22,6 +23,69 @@
     "st_pending": "Pending",
     "st_paid": "Paid",
     "st_cancelled": "Cancelled",
-    "st_refunded": "Refunded"
+    "st_refunded": "Refunded",
+    "sms_title": "SMS",
+    "sms_pick": "SMS template",
+    "sms_send": "Send SMS",
+    "sms_sent": "SMS sent to",
+    "sms_none": "No approved templates — add them in uzbridge → SMS.",
+    "sms_off": "SMS isn't set up (uzbridge → SMS).",
+    "tab_pay": "Payment",
+    "tab_sms": "SMS",
+    "created": "Link created",
+    "nothing_on": "Nothing is switched on in uzbridge for amoCRM: Settings → uzbridge.",
+    "s_dashboard": "uzbridge dashboard",
+    "s_pay": "Payment methods",
+    "s_pay_hint": "Which cash desks links from this amoCRM offer, one per payment system. Merchant keys are added in the uzbridge dashboard.",
+    "s_active": "Active",
+    "s_disabled": "Off in uzbridge",
+    "s_not_set": "Not connected",
+    "s_bills": "amoCRM invoices (Счета/покупки)",
+    "s_bills_hint": "Each payment link creates an invoice in the lead; it turns Paid once paid.",
+    "s_sms_on": "Send SMS from amoCRM",
+    "s_sms_hint": "SMS from the lead card, from phone numbers and in pipeline automation.",
+    "s_sms_missing": "No SMS gateway connected. Connect Eskiz or Playmobile in uzbridge → SMS.",
+    "s_tpl": "SMS templates",
+    "s_tpl_hint": "Templates switched off don't appear anywhere in amoCRM: the card, the “uzbridge: SMS shablon” field or the pipeline.",
+    "s_not_approved": "Not approved",
+    "s_auto": "Automation",
+    "s_auto_hint": "A payment link or SMS on its own when a lead reaches a stage, right away or after a delay.",
+    "s_auto_1": "Leads → Set up pipeline, pick a stage and click “+ Add”.",
+    "s_auto_2": "Find uzbridge and pick the action: payment link, SMS, or link + SMS.",
+    "s_auto_3": "Choose the template and when to run it (right away or after N minutes / hours / days), then save the pipeline.",
+    "s_save": "Save",
+    "s_saved": "Saved",
+    "dp_action": "Action",
+    "dp_link": "Create a payment link",
+    "dp_sms": "Send an SMS",
+    "dp_link_sms": "Payment link + SMS with it",
+    "dp_when": "When",
+    "dp_now": "Right when the lead enters the stage",
+    "dp_after": "After",
+    "dp_min": "min",
+    "dp_hour": "h",
+    "dp_day": "d",
+    "dp_hint": "A delayed action is dropped if the lead has left the stage by then. The link is for the lead's budget.",
+    "v_title": "SMS keywords",
+    "v_hint": "Write {key} in a template text; on sending it is replaced by the lead's or contact's field. Built-ins always work. Submit the Eskiz template for moderation with this {key}.",
+    "v_lead": "Lead",
+    "v_contact": "Contact",
+    "v_pick": "— amoCRM field —",
+    "v_remove": "Remove",
+    "v_add": "Add keyword",
+    "s_sms_account": "SMS account",
+    "s_sms_account_hint": "Which gateway account this amoCRM sends SMS through."
+  },
+  "settings": {
+    "uzbridge_company": "uzbridge company (optional)"
+  },
+  "advanced": {
+    "title": "uzbridge"
+  },
+  "dp": {
+    "action": "Action",
+    "template": "SMS template",
+    "delay": "Delay, min",
+    "key": "uzbridge key"
   }
 }

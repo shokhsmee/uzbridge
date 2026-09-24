@@ -8,7 +8,9 @@ APP=/opt/uzbridge
 STATE=/var/lib/uzbridge
 LIVE=/etc/letsencrypt/live/uzbridge/cert.pem
 
-wanted=$(sudo -u uzbridge "$APP/venv/bin/python" "$APP/backend/manage.py" uzbridge_hosts | sort -u)
+# Only names that already resolve: Let's Encrypt fails the whole order otherwise.
+wanted=$(sudo -u uzbridge "$APP/venv/bin/python" "$APP/backend/manage.py" uzbridge_hosts | sort -u |
+    while read -r h; do getent hosts "$h" >/dev/null && echo "$h"; done)
 
 covered() {
     [ -f "$LIVE" ] || return 0

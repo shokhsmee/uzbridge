@@ -6,6 +6,8 @@ import { useT } from '../lib/i18n'
 
 type Item = { key: string; name: string; kind: string; available: boolean; status: string }
 
+// Official logos from each vendor's site (amocrm.ru, odoo.com); the rest are placeholders.
+const LOGO: Record<string, string> = { amocrm: '/brands/amocrm.png', odoo: '/brands/odoo.svg' }
 const MARK: Record<string, { bg: string; text: string }> = {
   amocrm: { bg: '#1c6fd1', text: 'amo' },
   bitrix24: { bg: '#2fc6f6', text: 'B24' },
@@ -27,9 +29,13 @@ export default function IntegrationsPage() {
           return (
             <Card key={it.key} className={`p-5 flex flex-col gap-4 ${it.available ? '' : 'opacity-60'}`}>
               <div className="flex items-start justify-between gap-3">
-                <span className="grid size-11 place-items-center rounded-xl text-white text-xs font-bold" style={{ background: mark?.bg }}>
-                  {mark?.text}
-                </span>
+                {LOGO[it.key] ? (
+                  <img src={LOGO[it.key]} alt={it.name} className="size-11 rounded-xl border border-line bg-white object-contain" />
+                ) : (
+                  <span className="grid size-11 place-items-center rounded-xl text-white text-xs font-bold" style={{ background: mark?.bg }}>
+                    {mark?.text}
+                  </span>
+                )}
                 {!it.available ? (
                   <Pill tone="neutral">{t('int.soon')}</Pill>
                 ) : connected ? (
