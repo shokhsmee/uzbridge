@@ -1,0 +1,27 @@
+{
+  "widget": {
+    "name": "uzbridge — Payme, Click, Uzum payments",
+    "short_description": "Payment links from a lead; paid leads move to your Paid stage automatically.",
+    "description": "Create a payment link right in the lead card. Customers pay with Payme, Click or Uzum Bank, the fiscal receipt is issued automatically and the lead moves to the stage you chose. Merchant keys and stages are set in the uzbridge dashboard: https://app.uzbridge.uz"
+  },
+  "ui": {
+    "title": "Payment",
+    "amount": "Amount, UZS",
+    "description": "Purpose (optional)",
+    "create": "Create link",
+    "copy": "Copy",
+    "copied": "Copied",
+    "cancel": "Cancel",
+    "history": "Invoices for this lead",
+    "empty": "No invoices yet",
+    "save_lead_first": "Save the lead to create an invoice.",
+    "not_connected": "This account isn't connected to uzbridge. Connect it in the dashboard.",
+    "no_providers": "No payment methods are set up.",
+    "error": "Request failed",
+    "via": "via",
+    "st_pending": "Pending",
+    "st_paid": "Paid",
+    "st_cancelled": "Cancelled",
+    "st_refunded": "Refunded"
+  }
+}

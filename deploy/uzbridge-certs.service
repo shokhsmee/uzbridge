@@ -1,0 +1,6 @@
+[Unit]
+Description=uzbridge: extend the TLS certificate to new company subdomains
+
+[Service]
+Type=oneshot
+ExecStart=/opt/uzbridge/deploy/sync-certs.sh

@@ -1,0 +1,38 @@
+[project]
+name = "uzbridge"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "celery>=5.6.3",
+    "cryptography>=50.0.1",
+    "django>=5.2,<6",
+    "django-cors-headers>=4.9.0",
+    "django-environ>=0.14.0",
+    "django-ninja>=1.7.1",
+    "gunicorn>=26.2.0",
+    "httpx>=0.28.1",
+    "psycopg[binary]>=3.3.6",
+    "pyjwt>=2.15.0",
+    "redis>=8.1.0",
+    "whitenoise>=6.12.0",
+]
+
+[dependency-groups]
+dev = [
+    "freezegun>=1.5.5",
+    "pytest>=9.1.1",
+    "pytest-django>=4.14.0",
+    "respx>=0.23.1",
+    "ruff>=0.16.8",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+per-file-ignores = { "tests/*" = ["E501"] }
+ignore = ["B904"]

@@ -1,0 +1,21 @@
+{
+  "widget": {
+    "name": "widget.name",
+    "description": "widget.description",
+    "short_description": "widget.short_description",
+    "version": "1.0.0",
+    "interface_version": 2,
+    "init_once": false,
+    "locale": ["ru", "en"],
+    "installation": true,
+    "support": {
+      "link": "https://uzbridge.uz",
+      "email": "support@uzbridge.uz"
+    }
+  },
+  "locations": ["lcard-1", "settings"],
+  "tour": {
+    "is_tour": false
+  },
+  "settings": {}
+}

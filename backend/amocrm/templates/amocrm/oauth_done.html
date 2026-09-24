@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>amoCRM · uzbridge</title>
+<style>
+  body { font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; color:#14201f; background:#f3f5f5; margin:0; padding:48px 16px; text-align:center; }
+  .box { max-width:360px; margin:0 auto; background:#fff; border:1px solid #dde3e2; border-radius:12px; padding:24px; }
+  .ok { color:#1d7a3a; } .bad { color:#a33b2b; }
+  a { color:#12877f; }
+</style>
+</head>
+<body>
+<div class="box">
+  <p class="{{ ok|yesno:'ok,bad' }}"><strong>{{ message }}</strong></p>
+  {% if target %}<p><a href="{{ target }}">Back to the dashboard</a></p>{% endif %}
+</div>
+{% if origin %}
+<script>
+  (function () {
+    var payload = {{ payload|safe }};
+    if (window.opener) {
+      window.opener.postMessage(payload, "{{ origin|escapejs }}");
+      setTimeout(function () { window.close(); }, 600);
+    }
+  })();
+</script>
+{% endif %}
+</body>
+</html>

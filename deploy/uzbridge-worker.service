@@ -1,0 +1,14 @@
+[Unit]
+Description=uzbridge Celery worker + beat
+After=network.target postgresql.service redis-server.service
+
+[Service]
+User=uzbridge
+Group=uzbridge
+WorkingDirectory=/opt/uzbridge/backend
+ExecStart=/opt/uzbridge/venv/bin/celery -A config worker -B -l info --concurrency 2 -s /var/lib/uzbridge/celerybeat-schedule
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,79 @@
+<!doctype html>
+<!--
+  Dev-only stand-in for an amoCRM lead card, to exercise script.js against the
+  local backend. Open through the Vite dev server:
+    http://app.localhost:5174/@fs/Users/macbook/Odoo/uzbridge/widget/dev/harness.html?secret=<AMOCRM_CLIENT_SECRET>&account=31337
+  It mimics only what the widget uses: define(), render_template, i18n,
+  system().area, APP.data.current_card and $authorizedAjax (HS256 JWT).
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Widget harness</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<style>
+  body { font: 13px -apple-system, sans-serif; margin: 0; background: #eef1f4; display: grid; grid-template-columns: 1fr 300px; min-height: 100vh; }
+  .card { padding: 24px; }
+  .card input { height: 30px; }
+  aside { background: #fff; border-left: 1px solid #d8dde2; padding: 16px; }
+  .caption { font-weight: 600; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>Lead #9001 — Deal 9001</h2>
+  <label>Бюджет <input name="lead[PRICE]" value="2 450 000"></label>
+</div>
+<aside><div class="caption">uzbridge</div><div id="panel"></div></aside>
+<script>
+  const params = new URLSearchParams(location.search)
+  const SECRET = params.get('secret') || ''
+  const ACCOUNT = Number(params.get('account') || 31337)
+  const AUD = params.get('aud') || location.origin
+
+  window.APP = {
+    data: { current_card: { id: Number(params.get('lead') || 9001), model: { get: () => 'Deal 9001' } } },
+    constant: () => ({ name: 'Aziz (harness)' }),
+  }
+
+  const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const b64json = (o) => b64url(new TextEncoder().encode(JSON.stringify(o)))
+  async function jwt() {
+    const now = Math.floor(Date.now() / 1000)
+    const head = b64json({ alg: 'HS256', typ: 'JWT' })
+    const body = b64json({ iss: 'https://nursavdo-demo.amocrm.ru', aud: AUD, jti: crypto.randomUUID(), iat: now, nbf: now, exp: now + 1800, account_id: ACCOUNT, user_id: 1, subdomain: 'nursavdo-demo' })
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${head}.${body}`))
+    return `${head}.${body}.${b64url(sig)}`
+  }
+
+  window.define = function (deps, factory) {
+    Promise.all([
+      fetch('/@fs/Users/macbook/Odoo/uzbridge/widget/src/i18n/ru.json').then((r) => r.json()),
+    ]).then(([ru]) => {
+      const Widget = factory(window.jQuery)
+      const w = new Widget()
+      w.i18n = (k) => ru[k]
+      w.system = () => ({ area: 'lcard' })
+      w.render_template = ({ render }) => $('#panel').html(render)
+      w.$authorizedAjax = (opts) => {
+        const d = $.Deferred()
+        jwt().then((token) => $.ajax({ ...opts, headers: { 'X-Auth-Token': token } }).then(d.resolve, d.reject))
+        return d.promise()
+      }
+      w.callbacks.init()
+      w.callbacks.render()
+      w.callbacks.bind_actions()
+    })
+  }
+
+  fetch('/@fs/Users/macbook/Odoo/uzbridge/widget/src/script.js')
+    .then((r) => r.text())
+    .then((src) => {
+      const s = document.createElement('script')
+      s.textContent = src.replaceAll('__API_BASE__', '')
+      document.body.appendChild(s)
+    })
+</script>
+</body>
+</html>

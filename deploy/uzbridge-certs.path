@@ -1,0 +1,8 @@
+[Unit]
+Description=uzbridge: watch for certificate requests from the app
+
+[Path]
+PathChanged=/var/lib/uzbridge/cert-request
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+# Dev dependencies only. Django, Celery and Vite run on the host (see README).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: uzbridge
+      POSTGRES_USER: uzbridge
+      POSTGRES_PASSWORD: uzbridge
+    ports: ["127.0.0.1:5434:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6380:6379"]
+volumes:
+  pgdata:
